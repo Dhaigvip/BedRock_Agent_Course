@@ -9,17 +9,6 @@ mcp = FastMCP("travel-mcp-server")
 
 TRAVEL_API = os.getenv("TRAVEL_API_URL", "http://localhost:9000")
 
-# USD exchange rates (mock — updated periodically for the course)
-EXCHANGE_RATES: dict[str, float] = {
-    "USD": 1.00,
-    "EUR": 0.92,
-    "GBP": 0.79,
-    "JPY": 149.50,
-    "AUD": 1.53,
-    "THB": 35.20,
-    "AED": 3.67,
-}
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -114,19 +103,17 @@ def get_currency_rate(from_currency: str, to_currency: str) -> str:
         from_currency: Source currency code, e.g. 'USD'
         to_currency:   Target currency code, e.g. 'JPY'
     """
-    src = from_currency.upper()
-    tgt = to_currency.upper()
+    try:
+        result = get("/currency-rate", params={"from_currency": from_currency, "to_currency": to_currency})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return e.response.json().get("detail", "Currency not supported.")
+        raise
 
-    if src not in EXCHANGE_RATES:
-        return f"Currency '{src}' not supported. Supported: {', '.join(EXCHANGE_RATES)}"
-    if tgt not in EXCHANGE_RATES:
-        return f"Currency '{tgt}' not supported. Supported: {', '.join(EXCHANGE_RATES)}"
-
-    # Convert via USD as the base
-    rate = EXCHANGE_RATES[tgt] / EXCHANGE_RATES[src]
+    src, tgt, rate = result["from_currency"], result["to_currency"], result["rate"]
     return (
-        f"Exchange rate: 1 {src} = {rate:.4f} {tgt}\n"
-        f"  Example: $100 {src} = {100 * rate:.2f} {tgt}"
+        f"Exchange rate: 1 {src} = {rate} {tgt}\n"
+        f"  Example: 100 {src} = {100 * rate:.2f} {tgt}"
     )
 
 

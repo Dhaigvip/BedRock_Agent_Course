@@ -44,5 +44,14 @@
     "bangkok":   { "city": "Bangkok",   "temperature_c": 33, "condition": "Hot and humid", "humidity_percent": 85, "advice": "Stay hydrated and wear light clothing."      },
     "barcelona": { "city": "Barcelona", "temperature_c": 21, "condition": "Sunny",         "humidity_percent": 58, "advice": "Perfect beach weather."                      },
     "dubai":     { "city": "Dubai",     "temperature_c": 38, "condition": "Sunny and dry", "humidity_percent": 30, "advice": "Very hot — limit outdoor activity midday."   }
+  },
+  "exchange_rates": {
+    "USD": 1.00,
+    "EUR": 0.92,
+    "GBP": 0.79,
+    "JPY": 149.50,
+    "AUD": 1.53,
+    "THB": 35.20,
+    "AED": 3.67
   }
 }
