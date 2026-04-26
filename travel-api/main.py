@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
@@ -77,3 +78,7 @@ def get_hotels(
     if not results:
         raise HTTPException(status_code=404, detail=f"No hotels found in '{city}' within budget.")
     return results
+
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=9000, reload=True)

@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("travel-mcp-server")
 
-TRAVEL_API = os.getenv("TRAVEL_API_URL", "http://localhost:8000")
+TRAVEL_API = os.getenv("TRAVEL_API_URL", "http://localhost:9000")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
