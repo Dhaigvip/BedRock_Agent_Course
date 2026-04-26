@@ -1,6 +1,0 @@
-[tool.uv.workspace]
-members = [
-    "travel-api",
-    "mcp-server",
-    "agent",
-]

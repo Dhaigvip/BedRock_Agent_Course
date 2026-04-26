@@ -95,13 +95,24 @@ TRAVEL_API_URL=http://localhost:9000
 
 ## 3 — Install dependencies
 
-One command installs everything — the root `pyproject.toml` is a
-[uv workspace](https://docs.astral.sh/uv/concepts/workspaces/) that
-covers all three sub-projects.
+Each sub-project is independent and can be installed and run on its own.
+To install all three at once, run the setup script from the repo root:
 
+**Mac / Linux**
 ```bash
-# From the repo root
-uv sync
+bash setup.sh
+```
+
+**Windows**
+```bat
+setup.bat
+```
+
+Or install each one individually:
+```bash
+cd travel-api  && uv sync && cd ..
+cd mcp-server  && uv sync && cd ..
+cd agent       && uv sync && cd ..
 ```
 
 ---
@@ -139,7 +150,7 @@ cd agent
 uv run python main.py
 ```
 
-> All three commands use the shared `.venv` created at the repo root by `uv sync`.
+> Each service uses its own `.venv` inside its own folder.
 
 You should see:
 
