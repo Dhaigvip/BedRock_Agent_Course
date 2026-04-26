@@ -4,15 +4,16 @@ Travel Concierge Agent — entry point.
 Usage:
     uv run python main.py
 
-The agent runs an interactive REPL.  Type a travel question and press Enter.
-Type 'quit' or 'exit' to stop.
+Starts the MCP server once, fetches tools, then runs an interactive REPL.
+Type a travel question and press Enter. Type 'quit' or 'exit' to stop.
 """
 
+import asyncio
 from graph import agent
 from state import AgentState
+from mcp_client import MCPClient
 
 # ── System prompt ─────────────────────────────────────────────────────────────
-# Injected as the first "user" turn so every conversation has the same persona.
 
 SYSTEM_PROMPT = {
     "role": "user",
@@ -35,52 +36,62 @@ SYSTEM_ACK = {
 }
 
 
-def run():
+# ── REPL ──────────────────────────────────────────────────────────────────────
+
+async def run():
     print("=" * 60)
     print("  Travel Concierge Agent")
-    print("  Type 'quit' to exit")
-    print("=" * 60)
+    print("  Connecting to MCP server...")
 
-    # Seed the conversation with the system persona exchange
-    history = [SYSTEM_PROMPT, SYSTEM_ACK]
+    async with MCPClient.connect() as mcp:
+        # Fetch tool specs once — passed to every Bedrock call via state
+        tools = await mcp.list_tools()
 
-    while True:
-        try:
-            user_input = input("\nYou: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
-            break
+        print("  Type 'quit' to exit")
+        print("=" * 60)
 
-        if not user_input:
-            continue
-        if user_input.lower() in {"quit", "exit"}:
-            print("Goodbye!")
-            break
+        history = [SYSTEM_PROMPT, SYSTEM_ACK]
 
-        # Build the new user message and add it to history
-        user_message = {"role": "user", "content": [{"text": user_input}]}
-        history.append(user_message)
+        while True:
+            try:
+                user_input = input("\nYou: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nGoodbye!")
+                break
 
-        # Run the graph; it returns the full updated state
-        initial_state: AgentState = {"messages": history, "model_id": ""}
-        final_state = agent.invoke(initial_state)
+            if not user_input:
+                continue
+            if user_input.lower() in {"quit", "exit"}:
+                print("Goodbye!")
+                break
 
-        # Extract and print the last assistant reply
-        messages = final_state["messages"]
-        for msg in reversed(messages):
-            if msg.get("role") == "assistant":
-                text = " ".join(
-                    block["text"]
-                    for block in msg.get("content", [])
-                    if "text" in block
-                )
-                if text:
-                    print(f"\nAgent: {text}")
-                    break
+            # Add the new user message
+            history.append({"role": "user", "content": [{"text": user_input}]})
 
-        # Keep the full updated history for the next turn
-        history = final_state["messages"]
+            # Run the graph — thread MCPClient through via configurable
+            initial_state: AgentState = {
+                "messages": history,
+                "model_id": "",
+                "tools":    tools,
+            }
+            config = {"configurable": {"mcp_client": mcp}}
+            final_state = await agent.ainvoke(initial_state, config=config)
+
+            # Print the last assistant reply
+            for msg in reversed(final_state["messages"]):
+                if msg.get("role") == "assistant":
+                    text = " ".join(
+                        block["text"]
+                        for block in msg.get("content", [])
+                        if "text" in block
+                    )
+                    if text:
+                        print(f"\nAgent: {text}")
+                        break
+
+            # Carry the full history forward for the next turn
+            history = final_state["messages"]
 
 
 if __name__ == "__main__":
-    run()
+    asyncio.run(run())
