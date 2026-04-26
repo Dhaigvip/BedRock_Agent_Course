@@ -1,6 +1,7 @@
 import os
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.prompts.base import UserMessage, AssistantMessage
 
 # ── Server ────────────────────────────────────────────────────────────────────
 
@@ -127,6 +128,70 @@ def get_currency_rate(from_currency: str, to_currency: str) -> str:
         f"Exchange rate: 1 {src} = {rate:.4f} {tgt}\n"
         f"  Example: $100 {src} = {100 * rate:.2f} {tgt}"
     )
+
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+@mcp.prompt()
+def trip_planner_prompt(destination: str, budget_usd: int, duration_days: int) -> list[UserMessage | AssistantMessage]:
+    """
+    A reusable prompt template for planning a complete trip.
+    Primes the model with traveller context before the conversation starts.
+
+    Args:
+        destination:   City to travel to, e.g. 'Tokyo'
+        budget_usd:    Total trip budget in USD
+        duration_days: Length of the trip in days
+    """
+    return [
+        UserMessage(
+            content=(
+                f"I am planning a {duration_days}-day trip to {destination} "
+                f"with a total budget of ${budget_usd} USD.\n\n"
+                f"Please help me with the following:\n"
+                f"1. Best areas to stay within my budget\n"
+                f"2. Must-see attractions and estimated costs\n"
+                f"3. Daily budget breakdown (accommodation, food, transport, activities)\n"
+                f"4. Any travel tips or warnings I should know about\n\n"
+                f"Use the available tools to check current hotel prices and weather."
+            )
+        ),
+        AssistantMessage(
+            content=(
+                f"I'd be happy to help plan your {duration_days}-day trip to {destination}! "
+                f"Let me look up the latest hotel options and weather for you."
+            )
+        ),
+    ]
+
+
+@mcp.prompt()
+def budget_breakdown_prompt(destination: str, total_budget_usd: int, duration_days: int) -> list[UserMessage]:
+    """
+    A prompt template that asks for a detailed daily budget breakdown.
+
+    Args:
+        destination:      City to travel to
+        total_budget_usd: Total available budget in USD
+        duration_days:    Number of days travelling
+    """
+    daily = total_budget_usd // duration_days
+    return [
+        UserMessage(
+            content=(
+                f"My total budget for {destination} is ${total_budget_usd} USD "
+                f"over {duration_days} days (${daily}/day).\n\n"
+                f"Please give me a realistic daily budget breakdown showing how to "
+                f"allocate the ${daily}/day across:\n"
+                f"- Accommodation\n"
+                f"- Food & drinks\n"
+                f"- Local transport\n"
+                f"- Activities & entrance fees\n"
+                f"- Miscellaneous / buffer\n\n"
+                f"Flag if the budget is too tight and suggest adjustments."
+            )
+        ),
+    ]
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
