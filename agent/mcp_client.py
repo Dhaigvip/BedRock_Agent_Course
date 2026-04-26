@@ -98,6 +98,18 @@ class MCPClient:
               f"{[t['toolSpec']['name'] for t in bedrock_tools]}")
         return bedrock_tools
 
+    async def read_resource(self, uri: str) -> str:
+        """
+        Read a resource from the MCP server by URI.
+        Returns the resource content as a plain string.
+
+        Example:
+            text = await client.read_resource("prompts://system")
+        """
+        response = await self._session.read_resource(uri)
+        parts = [block.text for block in response.contents if hasattr(block, "text")]
+        return "\n".join(parts)
+
     async def call_tool(self, name: str, inputs: dict) -> str:
         """
         Call an MCP tool by name and return the result as a plain string.

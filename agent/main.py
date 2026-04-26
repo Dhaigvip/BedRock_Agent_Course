@@ -13,29 +13,6 @@ from graph import agent
 from state import AgentState
 from mcp_client import MCPClient
 
-# ── System prompt ─────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = {
-    "role": "user",
-    "content": [
-        {
-            "text": (
-                "You are a helpful AI Travel Concierge. "
-                "You help travellers plan trips, find hotels, check weather, "
-                "and understand currency exchange rates. "
-                "Always use the available tools to fetch real data before answering. "
-                "Be concise, friendly, and practical."
-            )
-        }
-    ],
-}
-
-SYSTEM_ACK = {
-    "role": "assistant",
-    "content": [{"text": "Understood! I'm your Travel Concierge. How can I help you today?"}],
-}
-
-
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
 async def run():
@@ -44,13 +21,20 @@ async def run():
     print("  Connecting to MCP server...")
 
     async with MCPClient.connect() as mcp:
-        # Fetch tool specs once — passed to every Bedrock call via state
-        tools = await mcp.list_tools()
+        # Fetch everything from the MCP server at startup —
+        # tool specs, system prompt, and opening ack message.
+        # Nothing is hardcoded in the agent.
+        tools      = await mcp.list_tools()
+        sys_text   = await mcp.read_resource("prompts://system")
+        sys_ack    = await mcp.read_resource("prompts://system-ack")
+
+        system_prompt = {"role": "user",      "content": [{"text": sys_text}]}
+        system_ack    = {"role": "assistant",  "content": [{"text": sys_ack}]}
 
         print("  Type 'quit' to exit")
         print("=" * 60)
 
-        history = [SYSTEM_PROMPT, SYSTEM_ACK]
+        history = [system_prompt, system_ack]
 
         while True:
             try:
