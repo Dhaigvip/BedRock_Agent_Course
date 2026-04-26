@@ -12,11 +12,19 @@ MODELS = {
     "complex": "amazon.nova-lite-v1:0",    # balanced — used for main reasoning
 }
 
-# ── Client ────────────────────────────────────────────────────────────────────
+# Model ARN format required by the Knowledge Base RetrieveAndGenerate API
+MODEL_ARNS = {
+    "simple":  f"arn:aws:bedrock:{os.getenv('AWS_REGION', 'us-east-1')}::foundation-model/amazon.nova-micro-v1:0",
+    "complex": f"arn:aws:bedrock:{os.getenv('AWS_REGION', 'us-east-1')}::foundation-model/amazon.nova-lite-v1:0",
+}
 
-_client = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_REGION", "us-east-1"))
+# ── Clients ───────────────────────────────────────────────────────────────────
 
-# ── Call ──────────────────────────────────────────────────────────────────────
+_region  = os.getenv("AWS_REGION", "us-east-1")
+_client  = boto3.client("bedrock-runtime",       region_name=_region)
+_kb_client = boto3.client("bedrock-agent-runtime", region_name=_region)
+
+# ── Converse API ──────────────────────────────────────────────────────────────
 
 def call_bedrock(
     messages:     list[dict],
@@ -56,3 +64,68 @@ def call_bedrock(
         raise RuntimeError(f"Bedrock call failed: {e.response['Error']['Message']}") from e
 
     return response["output"]["message"]
+
+
+# ── Knowledge Base — RetrieveAndGenerate API ──────────────────────────────────
+
+def retrieve_and_generate(
+    query:          str,
+    kb_id:          str,
+    model_id:       str = MODELS["complex"],
+    max_results:    int = 5,
+) -> dict:
+    """
+    Query a Bedrock Knowledge Base and generate a grounded answer.
+
+    Uses the RetrieveAndGenerate API which:
+      1. Embeds the query using Titan Embeddings V2
+      2. Searches the vector store for the top-k relevant chunks
+      3. Augments the prompt with those chunks
+      4. Returns a grounded answer with source citations
+
+    Args:
+        query:       The user's question
+        kb_id:       Bedrock Knowledge Base ID (from .env BEDROCK_KB_ID)
+        model_id:    Model to use for generation (default: Nova Lite)
+        max_results: Max number of document chunks to retrieve (default: 5)
+
+    Returns:
+        dict with keys:
+          "answer"   — generated text answer
+          "citations" — list of source chunks used (each has text + location)
+    """
+    model_arn = MODEL_ARNS.get(
+        next((k for k, v in MODELS.items() if v == model_id), "complex"),
+        MODEL_ARNS["complex"],
+    )
+
+    try:
+        response = _kb_client.retrieve_and_generate(
+            input={"text": query},
+            retrieveAndGenerateConfiguration={
+                "type": "KNOWLEDGE_BASE",
+                "knowledgeBaseConfiguration": {
+                    "knowledgeBaseId": kb_id,
+                    "modelArn":        model_arn,
+                    "retrievalConfiguration": {
+                        "vectorSearchConfiguration": {
+                            "numberOfResults": max_results,
+                        }
+                    },
+                },
+            },
+        )
+    except ClientError as e:
+        raise RuntimeError(f"RAG call failed: {e.response['Error']['Message']}") from e
+
+    answer = response["output"]["text"]
+
+    citations = []
+    for citation in response.get("citations", []):
+        for ref in citation.get("retrievedReferences", []):
+            citations.append({
+                "text":     ref["content"]["text"],
+                "location": ref.get("location", {}),
+            })
+
+    return {"answer": answer, "citations": citations}
