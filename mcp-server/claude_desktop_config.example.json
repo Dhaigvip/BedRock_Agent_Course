@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "travel-mcp": {
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "C:/src/Courses/BedRock_Agent_Course/mcp-server/server.py"
+      ],
+      "env": {
+        "TRAVEL_API_URL": "http://localhost:9000"
+      }
+    }
+  }
+}
