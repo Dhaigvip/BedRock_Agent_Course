@@ -95,17 +95,13 @@ TRAVEL_API_URL=http://localhost:9000
 
 ## 3 — Install dependencies
 
-Each sub-project is a standalone `uv` project.
+One command installs everything — the root `pyproject.toml` is a
+[uv workspace](https://docs.astral.sh/uv/concepts/workspaces/) that
+covers all three sub-projects.
 
 ```bash
-# Travel API
-cd travel-api && uv sync && cd ..
-
-# MCP Server
-cd mcp-server && uv sync && cd ..
-
-# Agent
-cd agent && uv sync && cd ..
+# From the repo root
+uv sync
 ```
 
 ---
@@ -128,7 +124,7 @@ curl http://localhost:9000/health
 # {"status":"ok"}
 ```
 
-### Terminal 2 — MCP Inspector (optional, for testing tools)
+### Terminal 2 — MCP Inspector (optional — Section 3 only)
 
 ```bash
 cd mcp-server
@@ -136,14 +132,14 @@ uv run mcp dev server.py
 # Inspector at http://localhost:6274
 ```
 
-> Skip this terminal once you're past Section 3.
-
 ### Terminal 3 — Agent
 
 ```bash
 cd agent
 uv run python main.py
 ```
+
+> All three commands use the shared `.venv` created at the repo root by `uv sync`.
 
 You should see:
 
