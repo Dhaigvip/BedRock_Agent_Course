@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+
+# uv
+uv.lock
+
+# Node
+node_modules/
+dist/
+
+# AWS
+.aws/
+
+# OS
+.DS_Store
+Thumbs.db
