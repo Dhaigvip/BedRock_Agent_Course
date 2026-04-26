@@ -1,13 +1,22 @@
 import os
+import boto3
 import httpx
+from botocore.exceptions import ClientError
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import UserMessage, AssistantMessage
+
+load_dotenv()
 
 # ── Server ────────────────────────────────────────────────────────────────────
 
 mcp = FastMCP("travel-mcp-server")
 
 TRAVEL_API = os.getenv("TRAVEL_API_URL", "http://localhost:9000")
+KB_ID      = os.getenv("BEDROCK_KB_ID", "")
+REGION     = os.getenv("AWS_REGION", "us-east-1")
+
+_bedrock_agent = boto3.client("bedrock-agent-runtime", region_name=REGION)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -115,6 +124,50 @@ def get_currency_rate(from_currency: str, to_currency: str) -> str:
         f"Exchange rate: 1 {src} = {rate} {tgt}\n"
         f"  Example: 100 {src} = {100 * rate:.2f} {tgt}"
     )
+
+
+# ── RAG tool ──────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def search_travel_guides(query: str) -> str:
+    """
+    Search the travel knowledge base for destination guides, visa requirements,
+    packing tips, local customs, and practical travel advice.
+    Use this tool for questions about visas, entry rules, cultural etiquette,
+    or detailed destination information not covered by the other tools.
+
+    Args:
+        query: Natural language search query, e.g. 'visa requirements for Japan'
+    """
+    if not KB_ID:
+        return (
+            "Knowledge Base not configured. "
+            "Set BEDROCK_KB_ID in agent/.env to enable travel guide search."
+        )
+
+    try:
+        response = _bedrock_agent.retrieve(
+            knowledgeBaseId=KB_ID,
+            retrievalQuery={"text": query},
+            retrievalConfiguration={
+                "vectorSearchConfiguration": {"numberOfResults": 4}
+            },
+        )
+    except ClientError as e:
+        return f"Knowledge Base search failed: {e.response['Error']['Message']}"
+
+    results = response.get("retrievalResults", [])
+    if not results:
+        return f"No travel guide information found for: {query}"
+
+    # Return the top chunks as plain text — the LLM will synthesise the answer
+    chunks = []
+    for r in results:
+        text  = r["content"]["text"]
+        score = r.get("score", 0)
+        chunks.append(f"[relevance: {score:.2f}]\n{text}")
+
+    return "\n\n---\n\n".join(chunks)
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
