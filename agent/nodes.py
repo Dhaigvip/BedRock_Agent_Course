@@ -1,5 +1,9 @@
+import os
+import httpx
 from state import AgentState
 from bedrock import call_bedrock, MODELS
+
+TRAVEL_API = os.getenv("TRAVEL_API_URL", "http://localhost:9000")
 
 # ── Tool config ───────────────────────────────────────────────────────────────
 # Bedrock Converse API expects tools in toolSpec format.
@@ -156,3 +160,99 @@ def llm_node(state: AgentState) -> dict:
 
     # Append the assistant message to conversation history
     return {"messages": [response]}
+
+
+# ── Node: tool ────────────────────────────────────────────────────────────────
+# Executes every toolUse block the LLM returned and builds toolResult messages.
+# Returns one "user" message containing all results so the LLM can continue.
+
+def _call_travel_api(name: str, inputs: dict) -> str:
+    """Dispatch a single tool call to the Travel API and return plain text."""
+    try:
+        if name == "get_destinations":
+            r = httpx.get(f"{TRAVEL_API}/destinations", timeout=10)
+            r.raise_for_status()
+            rows = []
+            for d in r.json():
+                rows.append(
+                    f"{d['city']}, {d['country']} | "
+                    f"Best season: {d['best_season']} | "
+                    f"Avg daily budget: ${d['avg_daily_budget_usd']}"
+                )
+            return "\n".join(rows)
+
+        elif name == "get_weather":
+            city = inputs["city"]
+            r = httpx.get(f"{TRAVEL_API}/weather/{city}", timeout=10)
+            if r.status_code == 404:
+                return f"No weather data for '{city}'."
+            r.raise_for_status()
+            w = r.json()
+            return (
+                f"{w['city']} weather: {w['temperature_c']}C, "
+                f"{w['condition']}, humidity {w['humidity_percent']}%. "
+                f"Advice: {w['advice']}"
+            )
+
+        elif name == "search_hotels":
+            city = inputs["city"]
+            max_price = inputs.get("max_price_per_night", 10000)
+            r = httpx.get(f"{TRAVEL_API}/hotels/{city}", params={"max_price": max_price}, timeout=10)
+            if r.status_code == 404:
+                return f"No hotels found in '{city}' under ${max_price}/night."
+            r.raise_for_status()
+            rows = []
+            for h in r.json():
+                rows.append(
+                    f"{h['name']} ({h['type']}) — "
+                    f"${h['price_per_night_usd']}/night — "
+                    f"rating {h['rating']}/5"
+                )
+            return f"Hotels in {city}:\n" + "\n".join(rows)
+
+        elif name == "get_currency_rate":
+            r = httpx.get(
+                f"{TRAVEL_API}/currency-rate",
+                params={"from_currency": inputs["from_currency"], "to_currency": inputs["to_currency"]},
+                timeout=10,
+            )
+            if r.status_code == 404:
+                return r.json().get("detail", "Currency not supported.")
+            r.raise_for_status()
+            d = r.json()
+            return f"1 {d['from_currency']} = {d['rate']} {d['to_currency']}"
+
+        else:
+            return f"Unknown tool: {name}"
+
+    except httpx.HTTPError as exc:
+        return f"Travel API error: {exc}"
+
+
+def tool_node(state: AgentState) -> dict:
+    # Find the last assistant message — it contains the toolUse requests
+    last = state["messages"][-1]
+    tool_results = []
+
+    for block in last.get("content", []):
+        if "toolUse" not in block:
+            continue
+        tool_use = block["toolUse"]
+        name     = tool_use["name"]
+        inputs   = tool_use.get("input", {})
+        use_id   = tool_use["toolUseId"]
+
+        print(f"[tool] executing {name}({inputs})")
+        result_text = _call_travel_api(name, inputs)
+        print(f"[tool] result preview: {result_text[:120]!r}")
+
+        tool_results.append({
+            "toolResult": {
+                "toolUseId": use_id,
+                "content": [{"text": result_text}],
+            }
+        })
+
+    # Wrap all results in a single "user" turn (Bedrock Converse convention)
+    tool_message = {"role": "user", "content": tool_results}
+    return {"messages": [tool_message]}
