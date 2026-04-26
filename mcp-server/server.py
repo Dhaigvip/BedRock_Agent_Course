@@ -181,36 +181,6 @@ def budget_breakdown_prompt(destination: str, total_budget_usd: int, duration_da
     ]
 
 
-# ── Resources ─────────────────────────────────────────────────────────────────
-# Resources are read-only data the agent fetches at startup.
-# Storing prompts here means they live next to the tools, are versioned
-# together, and the agent never has hardcoded strings.
-
-@mcp.resource("prompts://system")
-def system_prompt() -> str:
-    """
-    The Travel Concierge system prompt.
-    Fetched by the agent at startup via mcp.read_resource('prompts://system').
-    """
-    return (
-        "You are a helpful AI Travel Concierge. "
-        "You help travellers plan trips, find hotels, check weather, "
-        "and understand currency exchange rates. "
-        "Always use the available tools to fetch real data before answering. "
-        "Be concise, friendly, and practical."
-    )
-
-
-@mcp.resource("prompts://system-ack")
-def system_ack() -> str:
-    """
-    Opening acknowledgement message seeded as the first assistant turn.
-    Pre-seeding this signals to the LLM that it should start using tools
-    rather than asking clarifying questions.
-    """
-    return "Understood! I'm your Travel Concierge. How can I help you today?"
-
-
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
