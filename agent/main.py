@@ -2,21 +2,23 @@
 Travel Concierge Agent — entry point.
 
 Usage:
-    uv run python main.py
+    uv run python main.py [--user USER_ID]
 
 Starts the MCP server once, fetches tools, then runs an interactive REPL.
-Type a travel question and press Enter. Type 'quit' or 'exit' to stop.
+Short-term memory is stored in memory.db (SQLite) keyed by thread_id.
+The same user always resumes the same conversation thread.
+Type 'quit' or 'exit' to stop.
 """
 
 import asyncio
-from graph import agent
+import argparse
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+from graph import build_graph
 from state import AgentState
 from mcp_client import MCPClient
 
 # ── System prompt ─────────────────────────────────────────────────────────────
-# Seeded as the first two messages of every conversation so the model
-# knows its role and immediately starts using tools.
-# See resources/agent-prompts-reference.md for the full prompt guide.
 
 SYSTEM_PROMPT = {
     "role": "user",
@@ -41,60 +43,84 @@ SYSTEM_ACK = {
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
-async def run():
+async def run(thread_id: str):
     print("=" * 60)
-    print("  Travel Concierge Agent")
+    print(f"  Travel Concierge Agent  [session: {thread_id}]")
     print("  Connecting to MCP server...")
 
-    async with MCPClient.connect() as mcp:
-        # Fetch tool specs once from MCP — no hardcoding in the agent
-        tools = await mcp.list_tools()
+    # AsyncSqliteSaver stores the full graph state after every node.
+    # Same thread_id = same conversation resumed automatically.
+    async with AsyncSqliteSaver.from_conn_string("memory.db") as checkpointer:
+        agent = build_graph(checkpointer=checkpointer)
 
-        print("  Type 'quit' to exit")
-        print("=" * 60)
+        async with MCPClient.connect() as mcp:
+            tools = await mcp.list_tools()
 
-        history = [SYSTEM_PROMPT, SYSTEM_ACK]
+            print("  Type 'quit' to exit")
+            print("=" * 60)
 
-        while True:
-            try:
-                user_input = input("\nYou: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\nGoodbye!")
-                break
-
-            if not user_input:
-                continue
-            if user_input.lower() in {"quit", "exit"}:
-                print("Goodbye!")
-                break
-
-            # Add the new user message
-            history.append({"role": "user", "content": [{"text": user_input}]})
-
-            # Run the graph — thread MCPClient through via configurable
-            initial_state: AgentState = {
-                "messages": history,
-                "model_id": "",
-                "tools":    tools,
+            # Config binds this session to a thread — LangGraph restores
+            # the full message history from SQLite automatically.
+            config = {
+                "configurable": {
+                    "thread_id":  thread_id,
+                    "mcp_client": mcp,
+                }
             }
-            config = {"configurable": {"mcp_client": mcp}}
-            final_state = await agent.ainvoke(initial_state, config=config)
 
-            # Print the last assistant reply
-            for msg in reversed(final_state["messages"]):
-                if msg.get("role") == "assistant":
-                    text = " ".join(
-                        block["text"]
-                        for block in msg.get("content", [])
-                        if "text" in block
-                    )
-                    if text:
-                        print(f"\nAgent: {text}")
-                        break
+            # Seed the conversation only on the very first turn of a new thread.
+            # If the thread already exists in SQLite, the history is restored
+            # and we skip the seed to avoid duplicate system messages.
+            existing = await agent.aget_state(config)
+            is_new_thread = not existing.values
 
-            # Carry the full history forward for the next turn
-            history = final_state["messages"]
+            if is_new_thread:
+                seed_state: AgentState = {
+                    "messages": [SYSTEM_PROMPT, SYSTEM_ACK],
+                    "model_id": "",
+                    "tools":    tools,
+                }
+                await agent.aupdate_state(config, seed_state)
+
+            while True:
+                try:
+                    user_input = input("\nYou: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\nGoodbye!")
+                    break
+
+                if not user_input:
+                    continue
+                if user_input.lower() in {"quit", "exit"}:
+                    print("Goodbye!")
+                    break
+
+                # Pass only the new user message — the checkpointer automatically
+                # merges it with the full history stored in SQLite.
+                turn_state: AgentState = {
+                    "messages": [{"role": "user", "content": [{"text": user_input}]}],
+                    "model_id": "",
+                    "tools":    tools,
+                }
+                final_state = await agent.ainvoke(turn_state, config=config)
+
+                for msg in reversed(final_state["messages"]):
+                    if msg.get("role") == "assistant":
+                        text = " ".join(
+                            block["text"]
+                            for block in msg.get("content", [])
+                            if "text" in block
+                        )
+                        if text:
+                            print(f"\nAgent: {text}")
+                            break
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--user", default="default",
+        help="User ID — determines which conversation thread to resume (default: 'default')"
+    )
+    args = parser.parse_args()
+    asyncio.run(run(thread_id=args.user))

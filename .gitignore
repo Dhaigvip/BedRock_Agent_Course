@@ -17,6 +17,9 @@ dist/
 # AWS
 .aws/
 
+# Agent runtime data
+agent/memory.db
+
 # OS
 .DS_Store
 Thumbs.db

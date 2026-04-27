@@ -1,12 +1,10 @@
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from state import AgentState
 from nodes import classify_node, llm_node, tool_node
 
 # ── Routing helper ────────────────────────────────────────────────────────────
-# After llm responds, check whether it requested a tool call.
-# If yes -> route to tool_node to execute via MCP, then loop back to llm.
-# If no  -> direct answer, we're done.
 
 def _should_use_tool(state: AgentState) -> str:
     last = state["messages"][-1]
@@ -18,7 +16,7 @@ def _should_use_tool(state: AgentState) -> str:
 
 # ── Main agent graph ──────────────────────────────────────────────────────────
 
-def build_graph() -> StateGraph:
+def build_graph(checkpointer=None) -> StateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("classify", classify_node)
@@ -28,18 +26,14 @@ def build_graph() -> StateGraph:
     graph.set_entry_point("classify")
     graph.add_edge("classify", "llm")
 
-    # After llm: call a tool or finish
     graph.add_conditional_edges(
         "llm",
         _should_use_tool,
         {"tool": "tool", "end": END},
     )
 
-    # After tool execution: back to llm so it can use the result
     graph.add_edge("tool", "llm")
 
-    return graph.compile()
-
-
-# Compiled graph — imported by main.py
-agent = build_graph()
+    # checkpointer=None → no persistence (default, backwards compatible)
+    # checkpointer=AsyncSqliteSaver → full conversation memory per thread_id
+    return graph.compile(checkpointer=checkpointer)
