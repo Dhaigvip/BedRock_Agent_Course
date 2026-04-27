@@ -1,132 +1,135 @@
 # Step-by-Step AWS Deployment Guide
 
-Deploy the Travel Concierge stack to AWS — three services, fully managed.
+Deploy the Travel Concierge stack entirely through the **AWS Console**.
 
 ```
 Browser
   │  wss://
   ▼
-CloudFront ──► S3              React UI  (static)
+CloudFront ──► S3              React UI  (static files)
                 │
                 │  wss://
                 ▼
-          ALB (port 443)
+          ALB (port 80)
                 │
                 ▼
         ECS Fargate            Agent WebSocket API  (:8100)
-          agent-service          └─ spawns MCP server subprocess
-                │
+          agent-service
                 │  http://
                 ▼
         ECS Fargate            Travel Data API  (:9000)
           travel-api
 ```
 
-**Time estimate:** ~60 minutes for a first deployment.
+---
+
+## What needs a terminal vs what is portal-only
+
+| Step | Where |
+|---|---|
+| Docker build + push images to ECR | Terminal (Docker unavoidable) |
+| Build React UI with production URL | Terminal (npm build) |
+| Upload UI files to S3 | **Portal** (drag and drop) |
+| Everything else (IAM, ECS, ALB, CF…) | **Portal** |
+
+> **ECR push commands:** The AWS Console generates the exact commands for you.
+> Open any ECR repository → click **View push commands** — copy, paste, done.
 
 ---
 
 ## Prerequisites
 
-- [ ] AWS account with admin access
-- [ ] AWS CLI v2 installed and configured (`aws configure`)
-- [ ] Docker Desktop running
-- [ ] All three images build locally without errors:
-  ```bash
-  docker build -t travel-api ./travel-api
-  docker build -f agent/Dockerfile -t agent-service .
-  docker build -t travel-ui ./ui
-  ```
+- [ ] Docker Desktop installed and running
+- [ ] AWS CLI installed (needed only for `docker login` to ECR)
+- [ ] Node.js installed (needed only for `npm run build`)
+- [ ] AWS account open in your browser, region set to **us-east-1**
 
 ---
 
 ## Step 1 — Create ECR Repositories
 
-ECR (Elastic Container Registry) is AWS's private Docker image registry.
-You push your images here so ECS can pull them when launching containers.
+**ECR → Repositories → Create repository** (repeat 3 times)
 
-### Console
-1. Open **ECR** → **Repositories** → **Create repository**
-2. Create three repositories (repeat for each):
+| Repository name | Visibility |
+|---|---|
+| `travel-api` | Private |
+| `agent-service` | Private |
+| `travel-ui` | Private |
 
-   | Repository name | Visibility |
-   |---|---|
-   | `travel-api` | Private |
-   | `agent-service` | Private |
-   | `travel-ui` | Private |
-
-3. Leave all other settings as defaults → **Create**
-
-### CLI (alternative)
-```bash
-aws ecr create-repository --repository-name travel-api     --region us-east-1
-aws ecr create-repository --repository-name agent-service  --region us-east-1
-aws ecr create-repository --repository-name travel-ui      --region us-east-1
-```
-
-> Note your **Account ID** — visible in the top-right of the AWS console.
-> You will need it as `ACCOUNT_ID` in the commands below.
+Leave all other settings as default → **Create repository**
 
 ---
 
-## Step 2 — Build and Push Images to ECR
+## Step 2 — Build and Push Docker Images
 
-```bash
-ACCOUNT_ID=123456789012    # replace with your account ID
-REGION=us-east-1
-ECR=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
+The console generates the exact commands for you.
 
-# Authenticate Docker to ECR
-aws ecr get-login-password --region $REGION \
-  | docker login --username AWS --password-stdin $ECR
+1. Open **ECR → Repositories → travel-api**
+2. Click **View push commands** (top right)
+3. Copy and run the 4 commands in your terminal
 
-# travel-api
-docker build -t travel-api ./travel-api
-docker tag  travel-api:latest ${ECR}/travel-api:latest
-docker push ${ECR}/travel-api:latest
+Repeat for `agent-service` and `travel-ui`.
 
-# agent-service  (build context = repo root)
-docker build -f agent/Dockerfile -t agent-service .
-docker tag  agent-service:latest ${ECR}/agent-service:latest
-docker push ${ECR}/agent-service:latest
-
-# travel-ui  (WS URL updated in Step 8 after ALB is created)
-docker build -t travel-ui ./ui
-docker tag  travel-ui:latest ${ECR}/travel-ui:latest
-docker push ${ECR}/travel-ui:latest
-```
-
-Verify in **ECR → Repositories** — each repo should show a `latest` tag.
+> **Important for agent-service:** the build command shown by the console is:
+> ```
+> docker build -t agent-service .
+> ```
+> You must run this from the **repo root** (not the `agent/` folder) and add `-f agent/Dockerfile`:
+> ```
+> docker build -f agent/Dockerfile -t agent-service .
+> ```
+> The other 3 commands (login, tag, push) stay exactly as shown.
 
 ---
 
 ## Step 3 — Create IAM Roles
 
-Two roles are needed:
+### Role 1 — ecsTaskExecutionRole
 
-| Role | Purpose |
+> Skip if it already exists — search **IAM → Roles** for `ecsTaskExecutionRole`.
+
+**IAM → Roles → Create role**
+
+| Field | Value |
 |---|---|
-| `ecsTaskExecutionRole` | Allows ECS to pull ECR images and write CloudWatch logs |
-| `agentTaskRole` | Allows the agent container to call Bedrock and read Secrets Manager |
+| Trusted entity | AWS service |
+| Use case | Elastic Container Service → **Elastic Container Service Task** |
 
-### 3a — ecsTaskExecutionRole
+Click **Next** → search for and select:
+- `AmazonECSTaskExecutionRolePolicy`
 
-> This role may already exist if you have used ECS before. Check
-> **IAM → Roles** and search for `ecsTaskExecutionRole` before creating.
+Click **Next**
 
-1. **IAM → Roles → Create role**
-2. **Trusted entity:** AWS service → **Elastic Container Service Task**
-3. **Permissions:** attach `AmazonECSTaskExecutionRolePolicy` (AWS managed)
-4. **Role name:** `ecsTaskExecutionRole` → **Create**
+| Field | Value |
+|---|---|
+| Role name | `ecsTaskExecutionRole` |
 
-### 3b — agentTaskRole
+→ **Create role**
 
-1. **IAM → Roles → Create role**
-2. **Trusted entity:** AWS service → **Elastic Container Service Task**
-3. **Permissions:** skip for now (attach inline policy next)
-4. **Role name:** `agentTaskRole` → **Create**
-5. Open `agentTaskRole` → **Add permissions → Create inline policy**
-6. Switch to **JSON** tab, paste:
+---
+
+### Role 2 — agentTaskRole
+
+**IAM → Roles → Create role**
+
+| Field | Value |
+|---|---|
+| Trusted entity | AWS service |
+| Use case | Elastic Container Service → **Elastic Container Service Task** |
+
+Click **Next → Next** (skip permissions for now)
+
+| Field | Value |
+|---|---|
+| Role name | `agentTaskRole` |
+
+→ **Create role**
+
+Now add the Bedrock permission:
+
+1. Open `agentTaskRole` → **Add permissions → Create inline policy**
+2. Click the **JSON** tab
+3. Replace the content with:
 
 ```json
 {
@@ -157,359 +160,486 @@ Two roles are needed:
       "Sid": "SecretsManager",
       "Effect": "Allow",
       "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:travel-concierge/*"
+      "Resource": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:travel-concierge/*"
     }
   ]
 }
 ```
 
-7. **Policy name:** `AgentTaskPolicy` → **Create**
+4. Replace `YOUR_ACCOUNT_ID` with your 12-digit account ID
+5. **Policy name:** `AgentTaskPolicy` → **Create policy**
 
 ---
 
 ## Step 4 — Store Secrets in Secrets Manager
 
-Never bake credentials into Docker images.
-ECS pulls secrets from Secrets Manager at container start and injects
-them as environment variables.
+Create one secret for each value below.
 
-### Console — create one secret per value
+**Secrets Manager → Store a new secret** (repeat 3 times)
 
-1. **Secrets Manager → Store a new secret**
-2. **Secret type:** Other type of secret
-3. For each credential, create a **separate secret**:
+Each time:
+1. **Secret type:** Other type of secret
+2. **Key/value pairs:** clear the default row, add one pair:
 
-   | Secret name | Value |
-   |---|---|
-   | `travel-concierge/AWS_ACCESS_KEY_ID` | your access key |
-   | `travel-concierge/AWS_SECRET_ACCESS_KEY` | your secret key |
-   | `travel-concierge/BEDROCK_KB_ID` | your knowledge base ID (or leave empty) |
+| Secret name | Key | Value |
+|---|---|---|
+| `travel-concierge/AWS_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | your access key |
+| `travel-concierge/AWS_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | your secret key |
+| `travel-concierge/BEDROCK_KB_ID` | `BEDROCK_KB_ID` | your KB ID (or leave empty) |
 
-4. **Encryption key:** `aws/secretsmanager` (default) → **Next**
-5. **Rotation:** disable → **Next → Store**
+3. **Encryption:** `aws/secretsmanager` (default)
+4. Click **Next → Next → Store**
 
-> Note the full **ARN** of each secret — you need them for the task definition.
+**After creating each secret:** open it and copy the full **ARN**
+(looks like `arn:aws:secretsmanager:us-east-1:123456789012:secret:travel-concierge/AWS_ACCESS_KEY_ID-AbCdEf`)
 
-### CLI (alternative)
-```bash
-aws secretsmanager create-secret \
-  --name travel-concierge/AWS_ACCESS_KEY_ID \
-  --secret-string "AKIAIOSFODNN7EXAMPLE"
-
-aws secretsmanager create-secret \
-  --name travel-concierge/AWS_SECRET_ACCESS_KEY \
-  --secret-string "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-```
+You will need all three ARNs in Step 8.
 
 ---
 
 ## Step 5 — Create CloudWatch Log Groups
 
-ECS writes container stdout/stderr to CloudWatch Logs.
-Log groups must exist before the task starts.
+**CloudWatch → Log groups → Create log group** (repeat twice)
 
-```bash
-aws logs create-log-group --log-group-name /ecs/travel-api    --region us-east-1
-aws logs create-log-group --log-group-name /ecs/agent-service --region us-east-1
-```
+| Log group name |
+|---|
+| `/ecs/travel-api` |
+| `/ecs/agent-service` |
 
-Or in **CloudWatch → Log groups → Create log group**.
+Leave retention as default → **Create**
 
 ---
 
 ## Step 6 — Create the ECS Cluster
 
-The cluster is the logical boundary for your Fargate services.
+**ECS → Clusters → Create cluster**
 
-### Console
-1. **ECS → Clusters → Create cluster**
-2. **Cluster name:** `travel-concierge`
-3. **Infrastructure:** AWS Fargate (serverless) ✓
-4. Leave everything else as default → **Create**
+| Field | Value |
+|---|---|
+| Cluster name | `travel-concierge` |
+| Infrastructure | AWS Fargate (serverless) ✓ |
 
-### CLI
-```bash
-aws ecs create-cluster --cluster-name travel-concierge
-```
+Leave everything else as default → **Create**
 
 ---
 
 ## Step 7 — Deploy Travel API
 
-### 7a — Register the task definition
+### 7a — Create the task definition
 
-1. **ECS → Task definitions → Create new task definition → Create new revision with JSON**
-2. Paste the content of `deploy/task-def-travel-api.json`
-3. Replace `REPLACE_WITH_ACCOUNT_ID` with your account ID → **Create**
+**ECS → Task definitions → Create new task definition**
 
-Or via CLI:
-```bash
-# Edit deploy/task-def-travel-api.json first — replace ACCOUNT_ID
-aws ecs register-task-definition \
-  --cli-input-json file://deploy/task-def-travel-api.json
+At the top of the form click **Configure via JSON** and paste:
+
+```json
+{
+  "family": "travel-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "travel-api",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/travel-api:latest",
+      "portMappings": [
+        { "containerPort": 9000, "protocol": "tcp" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/travel-api",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "essential": true
+    }
+  ]
+}
 ```
 
-### 7b — Create the service
+Replace `YOUR_ACCOUNT_ID` → **Save** → **Create**
 
-1. **ECS → Clusters → travel-concierge → Services → Create**
-2. Settings:
+---
 
-   | Field | Value |
-   |---|---|
-   | Launch type | FARGATE |
-   | Task definition | `travel-api` (latest) |
-   | Service name | `travel-api` |
-   | Desired tasks | `1` |
+### 7b — Create the travel-api service
 
-3. **Networking:**
-   - VPC: default VPC
-   - Subnets: select all available
-   - Security group: create new → allow inbound TCP **9000** from the agent security group (add that rule after agent SG is created)
-   - Public IP: **OFF** (travel-api is internal only — the agent calls it)
+**ECS → Clusters → travel-concierge → Services → Create**
 
-4. **Load balancer:** None (internal service)
-5. → **Create**
+**Environment**
+
+| Field | Value |
+|---|---|
+| Compute option | Launch type |
+| Launch type | FARGATE |
+
+**Deployment configuration**
+
+| Field | Value |
+|---|---|
+| Application type | Service |
+| Task definition | `travel-api` — latest |
+| Service name | `travel-api` |
+| Desired tasks | `1` |
+
+**Networking**
+
+| Field | Value |
+|---|---|
+| VPC | default VPC |
+| Subnets | select all |
+| Security group | Create new — name: `travel-api-sg` |
+| Inbound rule | TCP port `9000` — source: Custom `10.0.0.0/8` (VPC internal only) |
+| Public IP | **TURN OFF** — travel-api is internal, not public |
+
+**Load balancing:** None
+
+→ **Create**
+
+---
 
 ### 7c — Note the private IP
 
-Once the task is **RUNNING**:
-- **ECS → Clusters → travel-concierge → Services → travel-api → Tasks**
-- Click the task → note the **Private IP** (e.g. `10.0.1.45`)
+Wait until the task shows **RUNNING** status (refresh every 30 seconds).
 
-You will use this as `TRAVEL_API_URL=http://10.0.1.45:9000` in the agent task definition.
+**ECS → Clusters → travel-concierge → Services → travel-api → Tasks**
+→ click the task ID → copy the **Private IP** (e.g. `10.0.1.45`)
 
-> **Better option for production:** use AWS Cloud Map (service discovery) so
-> the agent can reach travel-api by DNS name (`http://travel-api.local:9000`)
-> instead of a hardcoded IP. For the course, the private IP is simpler.
+You will use this as `http://10.0.1.45:9000` in the agent task definition.
 
 ---
 
 ## Step 8 — Deploy Agent API
 
-### 8a — Create an Application Load Balancer
+### 8a — Create a security group for the ALB
 
-The agent uses WebSocket (`ws://`). You need an ALB to expose it publicly
-with a stable DNS name. The ALB also handles SSL termination (HTTPS/WSS).
+**EC2 → Security Groups → Create security group**
 
-1. **EC2 → Load Balancers → Create load balancer → Application Load Balancer**
-2. Settings:
+| Field | Value |
+|---|---|
+| Name | `agent-alb-sg` |
+| Description | ALB for agent WebSocket API |
+| VPC | default VPC |
+| Inbound rule | HTTP, port `80`, source `0.0.0.0/0` |
 
-   | Field | Value |
-   |---|---|
-   | Name | `agent-alb` |
-   | Scheme | Internet-facing |
-   | IP address type | IPv4 |
-   | VPC | default VPC |
-   | Subnets | select all AZs |
-
-3. **Security group:** create new → allow inbound **HTTP 80** and **HTTPS 443** from `0.0.0.0/0`
-
-4. **Listeners:**
-   - HTTP:80 — add (used for testing; redirect to HTTPS in production)
-
-5. **Target group** (create new):
-
-   | Field | Value |
-   |---|---|
-   | Target type | IP addresses |
-   | Name | `agent-tg` |
-   | Protocol | HTTP |
-   | Port | 8100 |
-   | Health check path | `/` |
-
-6. → **Create load balancer**
-
-> **WebSocket note:** ALB supports WebSocket automatically — no extra config
-> needed. Any HTTP/1.1 connection with an `Upgrade: websocket` header is
-> passed through transparently.
-
-### 8b — Register the task definition
-
-Edit `deploy/task-def-agent.json`:
-- Replace `REPLACE_WITH_ACCOUNT_ID` with your account ID
-- Replace `REPLACE_WITH_TRAVEL_API_ALB_DNS` with the travel-api **Private IP** from Step 7c
-- Replace the secret ARNs with the ARNs from Step 4
-
-```bash
-aws ecs register-task-definition \
-  --cli-input-json file://deploy/task-def-agent.json
-```
-
-### 8c — Create the service
-
-1. **ECS → Clusters → travel-concierge → Services → Create**
-2. Settings:
-
-   | Field | Value |
-   |---|---|
-   | Launch type | FARGATE |
-   | Task definition | `agent-service` (latest) |
-   | Service name | `agent-service` |
-   | Desired tasks | `1` |
-
-3. **Networking:**
-   - VPC: default VPC
-   - Subnets: select all
-   - Security group: create new → allow inbound TCP **8100** from the ALB security group
-   - Public IP: OFF
-
-4. **Load balancing:**
-   - Load balancer type: Application Load Balancer
-   - Load balancer: `agent-alb`
-   - Listener: 80:HTTP
-   - Target group: `agent-tg` (existing)
-
-5. → **Create**
-
-### 8d — Note the ALB DNS name
-
-- **EC2 → Load Balancers → agent-alb**
-- Copy the **DNS name** (e.g. `agent-alb-1234567890.us-east-1.elb.amazonaws.com`)
-
-Test the WebSocket connection:
-```bash
-# Install wscat:  npm install -g wscat
-wscat -c ws://agent-alb-1234567890.us-east-1.elb.amazonaws.com/ws/chat
-# Type: {"message": "Hello", "user_id": "test"}
-# You should see streaming token responses
-```
+→ **Create security group**
 
 ---
 
-## Step 9 — Deploy React UI to S3 + CloudFront
+### 8b — Create a security group for the agent container
 
-### 9a — Create the S3 bucket
+**EC2 → Security Groups → Create security group**
 
-1. **S3 → Create bucket**
-2. Settings:
+| Field | Value |
+|---|---|
+| Name | `agent-service-sg` |
+| VPC | default VPC |
+| Inbound rule | Custom TCP, port `8100`, source: `agent-alb-sg` (select the SG you just created) |
 
-   | Field | Value |
-   |---|---|
-   | Bucket name | `travel-concierge-ui-YOUR_ACCOUNT_ID` (must be globally unique) |
-   | Region | us-east-1 |
-   | Block all public access | **ON** (CloudFront handles access, not S3 directly) |
+→ **Create security group**
 
-3. → **Create bucket**
+---
 
-### 9b — Create the CloudFront distribution
+### 8c — Create the target group
 
-1. **CloudFront → Create distribution**
-2. Settings:
+**EC2 → Target Groups → Create target group**
 
-   | Field | Value |
-   |---|---|
-   | Origin domain | select your S3 bucket |
-   | Origin access | Origin access control (OAC) → Create new OAC |
-   | Default root object | `index.html` |
-   | Viewer protocol policy | Redirect HTTP to HTTPS |
-   | Cache policy | CachingOptimized |
+| Field | Value |
+|---|---|
+| Target type | IP addresses |
+| Target group name | `agent-tg` |
+| Protocol | HTTP |
+| Port | `8100` |
+| VPC | default VPC |
+| Health check path | `/` |
 
-3. **Custom error responses** (for React SPA routing):
-   - Error code: `403` → Response page: `/index.html` → HTTP 200
-   - Error code: `404` → Response page: `/index.html` → HTTP 200
+→ **Next → Create target group** (no targets to register yet — ECS does this)
 
-4. → **Create distribution** (takes ~5 minutes to deploy globally)
+---
 
-5. Copy the bucket policy shown after OAC creation → paste into S3 bucket policy:
-   - **S3 → your bucket → Permissions → Bucket policy → Edit → Paste → Save**
+### 8d — Create the Application Load Balancer
 
-### 9c — Build the UI with the real WebSocket URL
+**EC2 → Load Balancers → Create load balancer → Application Load Balancer**
+
+| Field | Value |
+|---|---|
+| Name | `agent-alb` |
+| Scheme | Internet-facing |
+| IP address type | IPv4 |
+| VPC | default VPC |
+| Subnets | select **all** availability zones |
+| Security group | `agent-alb-sg` (remove the default one) |
+
+**Listeners and routing**
+
+| Field | Value |
+|---|---|
+| Protocol | HTTP |
+| Port | `80` |
+| Default action | Forward to `agent-tg` |
+
+→ **Create load balancer**
+
+> **WebSocket note:** ALB supports WebSocket automatically. Any connection
+> with an `Upgrade: websocket` header is passed through without any extra config.
+
+**Set idle timeout to 300 seconds** (important — default 60s will drop long conversations):
+
+- **EC2 → Load Balancers → agent-alb → Attributes → Edit**
+- Idle timeout → `300` → **Save**
+
+---
+
+### 8e — Create the agent task definition
+
+**ECS → Task definitions → Create new task definition → Configure via JSON**
+
+Paste the JSON below. Replace:
+- `YOUR_ACCOUNT_ID` — your 12-digit account ID
+- `TRAVEL_API_PRIVATE_IP` — the IP from Step 7c (e.g. `10.0.1.45`)
+- The three `SECRET_ARN_...` placeholders — the ARNs you copied in Step 4
+
+```json
+{
+  "family": "agent-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn":      "arn:aws:iam::YOUR_ACCOUNT_ID:role/agentTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "agent-service",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/agent-service:latest",
+      "portMappings": [
+        { "containerPort": 8100, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "AWS_REGION",     "value": "us-east-1" },
+        { "name": "TRAVEL_API_URL", "value": "http://TRAVEL_API_PRIVATE_IP:9000" }
+      ],
+      "secrets": [
+        { "name": "AWS_ACCESS_KEY_ID",     "valueFrom": "SECRET_ARN_ACCESS_KEY_ID" },
+        { "name": "AWS_SECRET_ACCESS_KEY", "valueFrom": "SECRET_ARN_SECRET_KEY" },
+        { "name": "BEDROCK_KB_ID",         "valueFrom": "SECRET_ARN_KB_ID" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group":         "/ecs/agent-service",
+          "awslogs-region":        "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "essential": true
+    }
+  ]
+}
+```
+
+→ **Save → Create**
+
+---
+
+### 8f — Create the agent service
+
+**ECS → Clusters → travel-concierge → Services → Create**
+
+**Environment**
+
+| Field | Value |
+|---|---|
+| Compute option | Launch type |
+| Launch type | FARGATE |
+
+**Deployment configuration**
+
+| Field | Value |
+|---|---|
+| Task definition | `agent-service` — latest |
+| Service name | `agent-service` |
+| Desired tasks | `1` |
+
+**Networking**
+
+| Field | Value |
+|---|---|
+| VPC | default VPC |
+| Subnets | select all |
+| Security group | `agent-service-sg` (remove default) |
+| Public IP | **TURN OFF** |
+
+**Load balancing**
+
+| Field | Value |
+|---|---|
+| Load balancer type | Application Load Balancer |
+| Load balancer | `agent-alb` |
+| Listener | `80:HTTP` — use existing |
+| Target group | `agent-tg` — use existing |
+
+→ **Create**
+
+---
+
+### 8g — Copy the ALB DNS name
+
+**EC2 → Load Balancers → agent-alb**
+
+Copy the **DNS name** (e.g. `agent-alb-1234567890.us-east-1.elb.amazonaws.com`)
+
+You will use this in the next step to build the UI.
+
+---
+
+## Step 9 — Deploy React UI
+
+### 9a — Build the UI with the real WebSocket URL
+
+In your terminal, from the repo root:
 
 ```bash
-# Use the ALB DNS name from Step 8d
+# Replace with the ALB DNS name from Step 8g
 VITE_WS_URL=ws://agent-alb-1234567890.us-east-1.elb.amazonaws.com/ws/chat \
 npm run build --prefix ui
 ```
 
-> For HTTPS/WSS (production): set up an ACM certificate on the ALB,
-> add an HTTPS:443 listener, then use `wss://` here.
-
-### 9d — Upload to S3
-
-```bash
-BUCKET=travel-concierge-ui-YOUR_ACCOUNT_ID
-
-# Upload assets with long cache (Vite adds content hashes to filenames)
-aws s3 sync ui/dist/ s3://${BUCKET}/ \
-  --delete \
-  --cache-control "public, max-age=31536000, immutable" \
-  --exclude "index.html"
-
-# Upload index.html with no-cache so users always get the latest version
-aws s3 cp ui/dist/index.html s3://${BUCKET}/index.html \
-  --cache-control "no-cache"
-```
-
-### 9e — Test
-
-Open your **CloudFront distribution domain** (e.g. `https://d1234abcd.cloudfront.net`).
-You should see the Travel Concierge chat UI and the "Connected" badge.
+This creates `ui/dist/` containing the production React app with your
+ALB URL baked in.
 
 ---
 
-## Step 10 — Verify the full stack
+### 9b — Create the S3 bucket
 
-Send a test message:
+**S3 → Create bucket**
 
-```
-"What is the weather in Tokyo?"
-```
+| Field | Value |
+|---|---|
+| Bucket name | `travel-concierge-ui` (add your account ID if taken) |
+| Region | us-east-1 |
+| Block all public access | **ON** (CloudFront handles public access) |
+| Versioning | off |
 
-Expected flow visible in the UI:
-1. Token stream starts appearing word by word
-2. ToolPanel shows `get_weather` being called with `{"city": "Tokyo"}`
-3. ToolPanel shows the result
-4. Final answer streams in
+→ **Create bucket**
 
-Check logs if anything fails:
-```bash
-# Stream live logs from the agent container
-aws logs tail /ecs/agent-service --follow
+---
 
-# Stream live logs from travel-api
-aws logs tail /ecs/travel-api --follow
-```
+### 9c — Create the CloudFront distribution
+
+**CloudFront → Create distribution**
+
+**Origin**
+
+| Field | Value |
+|---|---|
+| Origin domain | your S3 bucket (select from dropdown) |
+| Origin access | **Origin access control settings (recommended)** |
+| Origin access control | Create new OAC → **Create** (default settings are fine) |
+
+**Default cache behavior**
+
+| Field | Value |
+|---|---|
+| Viewer protocol policy | Redirect HTTP to HTTPS |
+| Cache policy | CachingOptimized |
+
+**Settings**
+
+| Field | Value |
+|---|---|
+| Default root object | `index.html` |
+
+→ **Create distribution**
+
+A yellow banner appears: **"You must update the S3 bucket policy"**
+→ click **Copy policy** → keep this copied.
+
+---
+
+### 9d — Update the S3 bucket policy
+
+**S3 → your bucket → Permissions → Bucket policy → Edit**
+
+Paste the policy you just copied → **Save changes**
+
+---
+
+### 9e — Add custom error responses (SPA routing)
+
+**CloudFront → your distribution → Error pages → Create custom error response** (twice)
+
+| HTTP error code | Response page path | HTTP response code |
+|---|---|---|
+| `403` | `/index.html` | `200` |
+| `404` | `/index.html` | `200` |
+
+---
+
+### 9f — Upload the UI files
+
+**S3 → your bucket → Upload**
+
+1. Click **Add files** → select all files inside `ui/dist/` (not the folder, the files)
+2. Click **Add folder** → select the `ui/dist/assets/` folder
+3. → **Upload**
+
+> **Cache headers via console:**
+> After upload, select all files in `assets/` → **Actions → Edit metadata**
+> → Add: `Cache-Control` = `public, max-age=31536000, immutable`
+>
+> Select `index.html` → **Actions → Edit metadata**
+> → Add: `Cache-Control` = `no-cache`
+
+---
+
+## Step 10 — Verify end-to-end
+
+1. Open **CloudFront → your distribution** — copy the **Distribution domain name**
+   (e.g. `https://d1234abcdef.cloudfront.net`)
+
+2. Open it in your browser — you should see the Travel Concierge chat UI
+   with a green **Connected** badge
+
+3. Send a test message: `"What is the weather in Tokyo?"`
+
+4. You should see:
+   - Tokens streaming in word-by-word
+   - The ToolPanel showing `get_weather` being called
+   - A full answer arriving
+
+**If something is wrong — check the logs:**
+
+**CloudWatch → Log groups → /ecs/agent-service → log streams**
+→ click the most recent stream to see the container output
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| UI shows "Reconnecting…" | Agent service not running or ALB misconfigured | Check ECS service events; check ALB target health |
-| Agent task keeps restarting | Missing env var or bad secret ARN | Check CloudWatch logs: `/ecs/agent-service` |
-| `AccessDeniedException` from Bedrock | `agentTaskRole` missing Bedrock permission | Re-check Step 3b IAM policy |
-| travel-api unreachable from agent | Wrong `TRAVEL_API_URL` in task def | Update task def with correct private IP; re-deploy |
-| CloudFront returns 403 | S3 bucket policy not updated with OAC | Re-apply the bucket policy from Step 9b |
-| WebSocket closes immediately | ALB idle timeout too short | EC2 → Load Balancers → Attributes → Idle timeout → set to 300s |
+| Symptom | Fix |
+|---|---|
+| UI shows "Reconnecting…" | Check agent-service task is RUNNING in ECS; check ALB target health (EC2 → Target Groups → agent-tg → Targets) |
+| Agent task keeps stopping | Open CloudWatch → /ecs/agent-service and read the error |
+| `AccessDeniedException` from Bedrock | agentTaskRole is missing the Bedrock policy — re-check Step 3b |
+| travel-api unreachable | Wrong private IP in TRAVEL_API_URL — update task definition and redeploy |
+| CloudFront returns 403 | S3 bucket policy not saved — redo Step 9d |
+| WebSocket drops after 60s | ALB idle timeout still at 60 — redo the 300s setting in Step 8d |
 
 ---
 
 ## Teardown (avoid ongoing charges)
 
-```bash
-# Delete ECS services (scale to 0 first)
-aws ecs update-service --cluster travel-concierge --service agent-service --desired-count 0
-aws ecs update-service --cluster travel-concierge --service travel-api    --desired-count 0
-aws ecs delete-service --cluster travel-concierge --service agent-service --force
-aws ecs delete-service --cluster travel-concierge --service travel-api    --force
+When you are done with the course, delete resources in this order:
 
-# Delete ALB + target group
-# (EC2 console → Load Balancers → Delete)
-
-# Empty and delete S3 bucket
-aws s3 rm s3://travel-concierge-ui-YOUR_ACCOUNT_ID --recursive
-aws s3 rb s3://travel-concierge-ui-YOUR_ACCOUNT_ID
-
-# Disable CloudFront distribution, then delete it (CloudFront console)
-
-# Delete ECR images (to avoid storage costs)
-aws ecr delete-repository --repository-name travel-api     --force
-aws ecr delete-repository --repository-name agent-service  --force
-aws ecr delete-repository --repository-name travel-ui      --force
-
-# Delete secrets
-aws secretsmanager delete-secret --secret-id travel-concierge/AWS_ACCESS_KEY_ID     --force-delete-without-recovery
-aws secretsmanager delete-secret --secret-id travel-concierge/AWS_SECRET_ACCESS_KEY --force-delete-without-recovery
-aws secretsmanager delete-secret --secret-id travel-concierge/BEDROCK_KB_ID         --force-delete-without-recovery
-```
+1. **ECS → Services** → scale desired count to 0 → delete both services
+2. **EC2 → Load Balancers** → delete `agent-alb`
+3. **EC2 → Target Groups** → delete `agent-tg`
+4. **CloudFront** → disable distribution → wait → delete
+5. **S3** → empty the bucket → delete bucket
+6. **ECS → Clusters** → delete `travel-concierge`
+7. **ECR → Repositories** → delete all three
+8. **Secrets Manager** → delete all three secrets
+9. **CloudWatch → Log groups** → delete `/ecs/travel-api` and `/ecs/agent-service`
