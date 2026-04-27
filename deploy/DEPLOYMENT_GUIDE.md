@@ -39,9 +39,11 @@ CloudFront ──► S3              React UI  (static files)
 
 ## Prerequisites
 
-- [ ] Docker Desktop installed and running
-- [ ] AWS CLI installed (needed only for `docker login` to ECR)
-- [ ] Node.js installed (needed only for `npm run build`)
+- [ ] **Docker Desktop installed and running** — open Docker Desktop and wait for the engine
+  to show "Running" before executing any `docker` command. Build and push will silently
+  fail or throw `"Cannot connect to the Docker daemon"` if Docker is not started.
+- [ ] AWS CLI installed and configured (`aws configure` done in Section 4)
+- [ ] Node.js installed (needed only for `npm run build` in Step 9)
 - [ ] AWS account open in your browser, region set to **us-east-1**
 
 ---
