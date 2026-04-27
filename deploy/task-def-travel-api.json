@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "ECS Fargate task definition for the Travel Data API.",
+    "Replace all REPLACE_WITH_... placeholders before registering.",
+    "",
+    "Register with:",
+    "  aws ecs register-task-definition --cli-input-json file://deploy/task-def-travel-api.json"
+  ],
+
+  "family": "travel-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+
+  "cpu":    "256",
+  "memory": "512",
+
+  "executionRoleArn": "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/ecsTaskExecutionRole",
+
+  "containerDefinitions": [
+    {
+      "name":  "travel-api",
+      "image": "REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/travel-api:latest",
+
+      "portMappings": [
+        { "containerPort": 9000, "protocol": "tcp" }
+      ],
+
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group":         "/ecs/travel-api",
+          "awslogs-region":        "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+
+      "essential": true
+    }
+  ]
+}

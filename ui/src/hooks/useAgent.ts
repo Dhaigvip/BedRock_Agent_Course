@@ -20,7 +20,8 @@ import type { Message, ToolEvent, WsFrame } from "../types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const WS_URL      = "ws://localhost:8100/ws/chat";
+// Override at build time with:  VITE_WS_URL=wss://your-alb.example.com/ws/chat npm run build
+const WS_URL      = import.meta.env.VITE_WS_URL ?? "ws://localhost:8100/ws/chat";
 const RECONNECT_MS = 3_000;   // wait 3 s before reconnecting
 
 // Persist a stable user_id across page reloads (stored in localStorage)

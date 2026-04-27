@@ -1,0 +1,66 @@
+# ── Local multi-container stack ───────────────────────────────────────────────
+#
+# Starts all three services in Docker so you can test the full stack locally
+# before deploying to AWS.
+#
+# Usage:
+#   docker compose up --build        # build images and start
+#   docker compose up -d             # start in background
+#   docker compose logs -f agent     # tail agent logs
+#   docker compose down              # stop and remove containers
+#
+# IMPORTANT — TRAVEL_API_URL:
+#   Inside Docker, services talk to each other by *service name*, not localhost.
+#   The agent must reach travel-api via http://travel-api:9000, not localhost:9000.
+#   This is set automatically below via the environment override.
+#   Your agent/.env can still have TRAVEL_API_URL=http://localhost:9000 for the
+#   non-Docker (uv run) workflow — docker-compose overrides it at runtime.
+#
+# AWS credentials:
+#   Copy agent/.env.example -> agent/.env and fill in your credentials.
+#   docker-compose mounts it with env_file so secrets never go into the image.
+
+services:
+
+  # ── Travel Data API ──────────────────────────────────────────────────────────
+  travel-api:
+    build:
+      context: ./travel-api
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Agent WebSocket API ──────────────────────────────────────────────────────
+  # Build context is the repo root so Dockerfile can copy both agent/ and mcp-server/
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    ports:
+      - "8100:8100"
+    env_file:
+      - ./agent/.env
+    environment:
+      # Override localhost URL — inside Docker, use the service name
+      TRAVEL_API_URL: http://travel-api:9000
+    depends_on:
+      travel-api:
+        condition: service_healthy
+
+  # ── React UI (nginx) ─────────────────────────────────────────────────────────
+  ui:
+    build:
+      context: ./ui
+      args:
+        # Inside Docker the browser still runs on the host machine,
+        # so ws://localhost:8100 is correct (agent port is mapped to host).
+        VITE_WS_URL: ws://localhost:8100/ws/chat
+    ports:
+      - "8080:80"
+    depends_on:
+      - agent

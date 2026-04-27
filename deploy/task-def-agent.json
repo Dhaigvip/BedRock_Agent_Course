@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "ECS Fargate task definition for the Agent WebSocket API.",
+    "Replace all REPLACE_WITH_... placeholders before registering.",
+    "",
+    "Key points:",
+    "  - taskRoleArn must allow bedrock:InvokeModel + bedrock:InvokeModelWithResponseStream",
+    "  - Secrets are pulled from AWS Secrets Manager at container start",
+    "  - TRAVEL_API_URL uses the internal ALB/service-discovery DNS, not localhost",
+    "",
+    "Register with:",
+    "  aws ecs register-task-definition --cli-input-json file://deploy/task-def-agent.json"
+  ],
+
+  "family": "agent-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+
+  "cpu":    "512",
+  "memory": "1024",
+
+  "executionRoleArn": "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn":      "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/agentTaskRole",
+
+  "containerDefinitions": [
+    {
+      "name":  "agent-service",
+      "image": "REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/agent-service:latest",
+
+      "portMappings": [
+        { "containerPort": 8100, "protocol": "tcp" }
+      ],
+
+      "environment": [
+        { "name": "AWS_REGION",       "value": "us-east-1" },
+        { "name": "TRAVEL_API_URL",   "value": "http://REPLACE_WITH_TRAVEL_API_ALB_DNS:9000" }
+      ],
+
+      "secrets": [
+        {
+          "name":      "AWS_ACCESS_KEY_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:REPLACE_WITH_ACCOUNT_ID:secret:travel-concierge/AWS_ACCESS_KEY_ID"
+        },
+        {
+          "name":      "AWS_SECRET_ACCESS_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:REPLACE_WITH_ACCOUNT_ID:secret:travel-concierge/AWS_SECRET_ACCESS_KEY"
+        },
+        {
+          "name":      "BEDROCK_KB_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:REPLACE_WITH_ACCOUNT_ID:secret:travel-concierge/BEDROCK_KB_ID"
+        }
+      ],
+
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group":         "/ecs/agent-service",
+          "awslogs-region":        "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+
+      "essential": true
+    }
+  ]
+}
