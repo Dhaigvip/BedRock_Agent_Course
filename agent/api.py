@@ -129,7 +129,7 @@ async def _stream_turn(
     """
 
     # 1. Append user message ─────────────────────────────────────────────────
-    await agent.aupdate_state(config, {"messages": [user_msg], "tools": tools})
+    await agent.aupdate_state(config, {"messages": [user_msg], "tools": tools}, as_node="__start__")
 
     # ── Main streaming loop (repeats when the LLM calls tools) ───────────────
     while True:
@@ -181,7 +181,7 @@ async def _stream_turn(
             content.append({"toolUse": tu})
 
         assistant_msg = {"role": "assistant", "content": content}
-        await agent.aupdate_state(config, {"messages": [assistant_msg]})
+        await agent.aupdate_state(config, {"messages": [assistant_msg]}, as_node="llm")
 
         # If no tool calls were made this turn, we're done
         if not tool_uses:
@@ -214,7 +214,7 @@ async def _stream_turn(
 
         # Append tool results and loop for the next LLM call
         tool_msg = {"role": "user", "content": tool_results}
-        await agent.aupdate_state(config, {"messages": [tool_msg]})
+        await agent.aupdate_state(config, {"messages": [tool_msg]}, as_node="tool")
 
     await ws.send_json({"type": "done"})
 
@@ -266,7 +266,7 @@ async def chat_ws(websocket: WebSocket):
                             "messages": [_build_system_prompt(user_facts), _SYSTEM_ACK],
                             "model_id": "",
                             "tools":    tools,
-                        })
+                        }, as_node="__start__")
 
                     # Classify once per user message
                     model_id = _classify(user_text)
