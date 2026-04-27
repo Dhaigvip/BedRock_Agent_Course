@@ -20,9 +20,10 @@ MODEL_ARNS = {
 
 # ── Clients ───────────────────────────────────────────────────────────────────
 
-_region  = os.getenv("AWS_REGION", "us-east-1")
-_client  = boto3.client("bedrock-runtime",       region_name=_region)
+_region    = os.getenv("AWS_REGION", "us-east-1")
+_client    = boto3.client("bedrock-runtime",       region_name=_region)
 _kb_client = boto3.client("bedrock-agent-runtime", region_name=_region)
+_bedrock   = boto3.client("bedrock",               region_name=_region)
 
 # ── Converse API ──────────────────────────────────────────────────────────────
 
@@ -64,6 +65,80 @@ def call_bedrock(
         raise RuntimeError(f"Bedrock call failed: {e.response['Error']['Message']}") from e
 
     return response["output"]["message"]
+
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+
+def get_or_create_guardrail(name: str = "travel-concierge-guardrail") -> str:
+    """
+    Return the guardrailId for the named guardrail, creating it if it doesn't
+    exist yet. Safe to call on every startup — idempotent.
+
+    The guardrail blocks:
+      - Off-topic financial advice ("invest", "stock", "crypto")
+      - Hate speech and violence (ContentPolicy)
+      - PII in responses (masks email, phone, credit card numbers)
+
+    Returns:
+        The guardrail ID string (used in guardrailConfig when calling Bedrock)
+    """
+    # Check whether it already exists
+    try:
+        response = _bedrock.list_guardrails()
+        for g in response.get("guardrails", []):
+            if g["name"] == name:
+                print(f"[guardrail] found existing: {g['id']}")
+                return g["id"]
+    except ClientError as e:
+        raise RuntimeError(f"Could not list guardrails: {e.response['Error']['Message']}") from e
+
+    # Create it
+    try:
+        response = _bedrock.create_guardrail(
+            name=name,
+            description="Travel Concierge — blocks off-topic and harmful content",
+            topicPolicyConfig={
+                "topicsConfig": [
+                    {
+                        "name":       "FinancialAdvice",
+                        "definition": "Questions about investing, stocks, crypto, or financial planning.",
+                        "examples":   [
+                            "Should I invest my savings in Bitcoin?",
+                            "What stocks should I buy before my trip?",
+                        ],
+                        "type": "DENY",
+                    },
+                ]
+            },
+            contentPolicyConfig={
+                "filtersConfig": [
+                    {"type": "HATE",      "inputStrength": "HIGH", "outputStrength": "HIGH"},
+                    {"type": "VIOLENCE",  "inputStrength": "HIGH", "outputStrength": "HIGH"},
+                    {"type": "SEXUAL",    "inputStrength": "HIGH", "outputStrength": "HIGH"},
+                ]
+            },
+            sensitiveInformationPolicyConfig={
+                "piiEntitiesConfig": [
+                    {"type": "EMAIL",           "action": "ANONYMIZE"},
+                    {"type": "PHONE",           "action": "ANONYMIZE"},
+                    {"type": "CREDIT_DEBIT_CARD_NUMBER", "action": "ANONYMIZE"},
+                ]
+            },
+            blockedInputMessaging=(
+                "I'm a Travel Concierge and can only help with travel-related questions. "
+                "For financial advice, please consult a qualified financial advisor."
+            ),
+            blockedOutputsMessaging=(
+                "I can't provide that information. "
+                "Let me know if you have any travel questions I can help with!"
+            ),
+        )
+        guardrail_id = response["guardrailId"]
+        print(f"[guardrail] created: {guardrail_id}")
+        return guardrail_id
+
+    except ClientError as e:
+        raise RuntimeError(f"Could not create guardrail: {e.response['Error']['Message']}") from e
 
 
 # ── Knowledge Base — RetrieveAndGenerate API ──────────────────────────────────
