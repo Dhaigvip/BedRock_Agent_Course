@@ -46,6 +46,32 @@ CloudFront ──► S3              React UI  (static files)
 
 ---
 
+## Step 0 — Add ECR + ECS Permissions to Your IAM User
+
+> The `bedrock` user created in Section 4 only has `AmazonBedrockFullAccess`.
+> Deployment needs additional permissions for ECR (push images) and ECS (create services).
+> Do this once before any other step.
+
+**IAM → Users → bedrock → Add permissions → Attach policies directly**
+
+Search for and attach these three managed policies:
+
+| Policy | Why needed |
+|---|---|
+| `AmazonEC2ContainerRegistryFullAccess` | Push Docker images to ECR |
+| `AmazonECS_FullAccess` | Create clusters, task definitions, services |
+| `SecretsManagerReadWrite` | Store and read credentials in Secrets Manager |
+
+→ **Add permissions**
+
+Verify with:
+```cmd
+aws ecr get-login-password --region us-east-1
+```
+If it returns a long token (not an AccessDeniedException) you are good to go.
+
+---
+
 ## Step 1 — Create ECR Repositories
 
 **ECR → Repositories → Create repository** (repeat 3 times)
