@@ -25,6 +25,34 @@ _client    = boto3.client("bedrock-runtime",       region_name=_region)
 _kb_client = boto3.client("bedrock-agent-runtime", region_name=_region)
 _bedrock   = boto3.client("bedrock",               region_name=_region)
 
+# ── Token pricing (USD per 1000 tokens, as of 2024) ──────────────────────────
+# Update these if AWS changes pricing: https://aws.amazon.com/bedrock/pricing/
+
+_PRICING = {
+    "amazon.nova-micro-v1:0": {"input": 0.000035, "output": 0.00014},
+    "amazon.nova-lite-v1:0":  {"input": 0.00006,  "output": 0.00024},
+}
+
+
+def log_usage(model_id: str, usage: dict):
+    """
+    Log token counts and estimated cost for a single Bedrock Converse call.
+    usage dict comes directly from response["usage"] returned by the API:
+      {"inputTokens": int, "outputTokens": int, "totalTokens": int}
+    """
+    input_tokens  = usage.get("inputTokens",  0)
+    output_tokens = usage.get("outputTokens", 0)
+
+    pricing = _PRICING.get(model_id, {"input": 0, "output": 0})
+    cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000
+
+    print(
+        f"[usage] {model_id.split('/')[-1]} | "
+        f"in={input_tokens} out={output_tokens} | "
+        f"cost=${cost:.6f}"
+    )
+
+
 # ── Converse API ──────────────────────────────────────────────────────────────
 
 def call_bedrock(
@@ -63,6 +91,10 @@ def call_bedrock(
         response = _client.converse(**kwargs)
     except ClientError as e:
         raise RuntimeError(f"Bedrock call failed: {e.response['Error']['Message']}") from e
+
+    # Log token usage + cost after every call for traceability
+    if "usage" in response:
+        log_usage(model_id, response["usage"])
 
     return response["output"]["message"]
 
