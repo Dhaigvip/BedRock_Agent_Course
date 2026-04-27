@@ -15,4 +15,8 @@ echo =^> agent
 cd agent && uv sync && cd ..
 
 echo.
+echo =^> ui
+cd ui && npm install && cd ..
+
+echo.
 echo All done. See README.md for how to run the stack.

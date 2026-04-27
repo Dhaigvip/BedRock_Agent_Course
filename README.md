@@ -109,48 +109,72 @@ setup.bat
 ```
 
 Or install each one individually:
+
+**Mac / Linux (bash)**
 ```bash
 cd travel-api  && uv sync && cd ..
 cd mcp-server  && uv sync && cd ..
 cd agent       && uv sync && cd ..
+cd ui          && npm install && cd ..
+```
+
+**Windows (PowerShell)**
+```powershell
+cd travel-api;  uv sync; cd ..
+cd mcp-server;  uv sync; cd ..
+cd agent;       uv sync; cd ..
+cd ui;          npm install; cd ..
 ```
 
 ---
 
 ## 4 — Run the stack
 
-Open **three terminals** — one per service.
+Open **four terminals** — one per service.
+Each service uses its own `.venv` inside its own folder.
+
+> **Windows note:** PowerShell 5.1 does not support `&&`.
+> Use `;` to chain commands, or run each command on its own line.
 
 ### Terminal 1 — Travel Data API
 
-```bash
+```powershell
 cd travel-api
 uv run python main.py
 # Serving on http://localhost:9000
 ```
 
 Verify:
-```bash
-curl http://localhost:9000/health
-# {"status":"ok"}
+```powershell
+Invoke-RestMethod http://localhost:9000/health
+# status : ok
 ```
 
 ### Terminal 2 — MCP Inspector (optional — Section 3 only)
 
-```bash
+```powershell
 cd mcp-server
 uv run mcp dev server.py
 # Inspector at http://localhost:6274
 ```
 
-### Terminal 3 — Agent
+### Terminal 3 — Agent WebSocket API (Section 9+)
 
-```bash
+```powershell
 cd agent
-uv run python main.py
+uv run uvicorn api:app --host 0.0.0.0 --port 8100 --reload
+# WebSocket ready at ws://localhost:8100/ws/chat
 ```
 
-> Each service uses its own `.venv` inside its own folder.
+> For the interactive CLI (Sections 1–8) use `uv run python main.py` instead.
+
+### Terminal 4 — React UI (Section 9+)
+
+```powershell
+cd ui
+npm run dev
+# http://localhost:5173
+```
 
 You should see:
 

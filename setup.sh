@@ -17,4 +17,8 @@ echo "==> agent"
 (cd agent && uv sync)
 
 echo ""
+echo "==> ui"
+(cd ui && npm install)
+
+echo ""
 echo "All done. See README.md for how to run the stack."
