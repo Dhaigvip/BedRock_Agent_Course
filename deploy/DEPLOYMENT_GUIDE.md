@@ -86,6 +86,12 @@ If it returns a long token (not an AccessDeniedException) you are good to go.
 
 Leave all other settings as default → **Create repository**
 
+> **Why only 3 repos and not 4?**
+> The MCP server is **not** a separate container. It is bundled inside the
+> `agent-service` image and runs as a subprocess — the agent spawns it via
+> stdio transport at startup. This is why the agent `Dockerfile` build context
+> is the repo root and copies both `agent/` and `mcp-server/` together.
+
 ---
 
 ## Step 2 — Build and Push Docker Images
