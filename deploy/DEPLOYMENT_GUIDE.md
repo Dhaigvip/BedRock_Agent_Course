@@ -96,23 +96,53 @@ Leave all other settings as default → **Create repository**
 
 ## Step 2 — Build and Push Docker Images
 
-The console generates the exact commands for you.
+The ECR console generates the push commands for you automatically.
 
+### How to get the commands
 1. Open **ECR → Repositories → travel-api**
 2. Click **View push commands** (top right)
-3. Copy and run the 4 commands in your terminal
+3. Select the **AWS CLI** tab (not the PowerShell tab)
+4. Copy and run all 4 commands in your terminal
 
 Repeat for `agent-service` and `travel-ui`.
 
-> **Important for agent-service:** the build command shown by the console is:
-> ```
-> docker build -t agent-service .
-> ```
-> You must run this from the **repo root** (not the `agent/` folder) and add `-f agent/Dockerfile`:
-> ```
-> docker build -f agent/Dockerfile -t agent-service .
-> ```
-> The other 3 commands (login, tag, push) stay exactly as shown.
+---
+
+### travel-api and travel-ui — run as shown
+
+The console commands work as-is. Run them from the repo root.
+
+---
+
+### agent-service — requires two changes
+
+The ECR console does not know about your project structure. It generates a
+generic build command:
+```
+docker build -t agent-service .
+```
+
+This will **fail** or produce a broken image because:
+
+1. **Wrong Dockerfile location** — the agent Dockerfile is at `agent/Dockerfile`,
+   not at the repo root. Docker won't find it without the `-f` flag.
+
+2. **Wrong build context** — the agent Dockerfile copies from both `agent/` and
+   `mcp-server/`. The build context (the `.` at the end) must be the **repo root**
+   so Docker can see both folders. If you run the build from inside the `agent/`
+   folder, Docker cannot find `mcp-server/` and the build fails.
+
+**Use this command instead** (from the repo root):
+```cmd
+docker build -f agent/Dockerfile -t agent-service .
+```
+
+What each part means:
+- `-f agent/Dockerfile` — tell Docker where the Dockerfile is
+- `-t agent-service` — name the image
+- `.` — build context is the current folder (repo root) — gives Docker access to both `agent/` and `mcp-server/`
+
+The other 3 commands from the console (login, tag, push) stay exactly as shown.
 
 ---
 
