@@ -4,7 +4,7 @@
     "Replace all REPLACE_WITH_... placeholders before registering.",
     "",
     "Key points:",
-    "  - taskRoleArn needs bedrock-agent-runtime:Retrieve for the search_travel_guides tool",
+    "  - taskRoleArn needs bedrock:Retrieve for the search_travel_guides tool",
     "  - TRAVEL_API_URL uses the private IP of the travel-api ECS task",
     "  - MCP_TRANSPORT is set to 'http' so the server listens on port 8200 via SSE",
     "  - No ALB needed — agent connects directly via private IP",

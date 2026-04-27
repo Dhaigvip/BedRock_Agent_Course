@@ -6,7 +6,7 @@
     "Permissions granted:",
     "  bedrock:InvokeModel                    — call_bedrock() (Converse API)",
     "  bedrock:InvokeModelWithResponseStream  — call_bedrock_stream() (Converse Stream)",
-    "  bedrock-agent-runtime:RetrieveAndGenerate  — RAG Knowledge Base queries",
+    "  bedrock:RetrieveAndGenerate  — RAG Knowledge Base queries",
     "  secretsmanager:GetSecretValue          — pull secrets at task start",
     "",
     "Create the role in AWS console or with:",
@@ -35,8 +35,8 @@
       "Sid": "BedrockRAG",
       "Effect": "Allow",
       "Action": [
-        "bedrock-agent-runtime:RetrieveAndGenerate",
-        "bedrock-agent-runtime:Retrieve"
+        "bedrock:RetrieveAndGenerate",
+        "bedrock:Retrieve"
       ],
       "Resource": "*"
     },

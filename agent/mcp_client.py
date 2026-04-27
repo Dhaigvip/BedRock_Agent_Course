@@ -28,27 +28,33 @@ from contextlib import asynccontextmanager
 
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 # ── Transport config ──────────────────────────────────────────────────────────
 
 _TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio")
 
-# stdio — path to the server script (one level up from this file)
-_SERVER_SCRIPT = os.path.join(
-    os.path.dirname(__file__), "..", "mcp-server", "server.py"
-)
+# stdio — path to the server script.
+# In Docker: mcp-server is bundled at /app/mcp-server/server.py
+# Locally:   mcp-server is one level up at ../mcp-server/server.py
+_here = os.path.dirname(os.path.abspath(__file__))
+_bundled = os.path.join(_here, "mcp-server", "server.py")   # Docker
+_sibling = os.path.join(_here, "..", "mcp-server", "server.py")  # local dev
+_SERVER_SCRIPT = _bundled if os.path.exists(_bundled) else _sibling
 _SERVER_PARAMS = StdioServerParameters(
     command="uv",
     args=["run", "python", os.path.abspath(_SERVER_SCRIPT)],
-    env=None,   # inherits current environment (.env already loaded by agent)
+    # Explicitly force stdio — prevents subprocess reading MCP_TRANSPORT=http
+    # from a .env file and starting an HTTP server instead of stdio mode.
+    env={**os.environ, "MCP_TRANSPORT": "stdio"},
 )
 
-# http — URL of the running MCP server's SSE endpoint
-_MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8200/sse")
+# http — URL of the running MCP server's streamable-http endpoint
+_MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8200/mcp")
 
 
 # ── Format conversion ─────────────────────────────────────────────────────────
+
 
 def _mcp_tool_to_bedrock(tool) -> dict:
     """
@@ -64,16 +70,17 @@ def _mcp_tool_to_bedrock(tool) -> dict:
     """
     return {
         "toolSpec": {
-            "name":        tool.name,
+            "name": tool.name,
             "description": tool.description or "",
             "inputSchema": {
-                "json": tool.inputSchema   # Bedrock wraps JSON Schema under "json" key
+                "json": tool.inputSchema  # Bedrock wraps JSON Schema under "json" key
             },
         }
     }
 
 
 # ── Client ────────────────────────────────────────────────────────────────────
+
 
 class MCPClient:
     """Thin async wrapper around an MCP ClientSession."""
@@ -99,8 +106,13 @@ class MCPClient:
                 tools = await client.list_tools()
         """
         if _TRANSPORT == "http":
-            print(f"[mcp] connecting via HTTP/SSE → {_MCP_SERVER_URL}")
-            async with sse_client(_MCP_SERVER_URL) as (read, write):
+            print(f"[mcp] connecting via streamable-http → {_MCP_SERVER_URL}")
+            # Override Host header — FastMCP validates it and rejects Docker service names.
+            # Sending "localhost" satisfies the check regardless of the actual hostname.
+            async with streamablehttp_client(
+                _MCP_SERVER_URL,
+                headers={"Host": "localhost"},
+            ) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     yield MCPClient(session)
@@ -120,8 +132,10 @@ class MCPClient:
         """
         response = await self._session.list_tools()
         bedrock_tools = [_mcp_tool_to_bedrock(t) for t in response.tools]
-        print(f"[mcp] {len(bedrock_tools)} tools loaded: "
-              f"{[t['toolSpec']['name'] for t in bedrock_tools]}")
+        print(
+            f"[mcp] {len(bedrock_tools)} tools loaded: "
+            f"{[t['toolSpec']['name'] for t in bedrock_tools]}"
+        )
         return bedrock_tools
 
     async def call_tool(self, name: str, inputs: dict) -> str:

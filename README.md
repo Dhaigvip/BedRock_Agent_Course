@@ -83,8 +83,6 @@ Now generate an access key:
 
 ---
 
----
-
 ## 2 — Environment file
 
 **Mac / Linux**
@@ -115,8 +113,8 @@ later as you work through each section — leave them as-is for now.
 > - `http` — MCP server runs as its own container. Used automatically by Docker Compose and ECS (Section 10).
 
 > **Section 10 — Deployment:** `aws configure` is needed in that section so
-> the AWS CLI can push Docker images to ECR. The AWS CLI install instructions
-> are in the Prerequisites section above.
+> the AWS CLI can push Docker images to ECR. Install instructions are in
+> `deploy/DEPLOYMENT_GUIDE.md` Step 0.
 
 ---
 
@@ -207,6 +205,19 @@ uv run python api.py
 > With `MCP_TRANSPORT=stdio` (the default), the MCP server starts automatically
 > as a subprocess — you do **not** need a separate terminal for it.
 
+When the agent starts you should see:
+
+```
+============================================================
+  Travel Concierge Agent
+  Connecting to MCP server...
+[mcp] 5 tools loaded: ['get_destinations', 'get_weather', 'search_hotels', 'get_currency_rate', 'search_travel_guides']
+  Type 'quit' to exit
+============================================================
+
+You:
+```
+
 #### Terminal 4 — React UI (Section 9+)
 
 ```powershell
@@ -237,19 +248,6 @@ docker compose up --build
 docker compose down   # stop and remove containers
 ```
 
-You should see:
-
-```
-============================================================
-  Travel Concierge Agent
-  Connecting to MCP server...
-[mcp] 4 tools loaded: ['get_destinations', 'get_weather', 'search_hotels', 'get_currency_rate']
-  Type 'quit' to exit
-============================================================
-
-You: 
-```
-
 ---
 
 ## 5 — Try it out
@@ -269,7 +267,7 @@ You: quit
 | Problem | Fix |
 |---------|-----|
 | `Connection refused` on port 9000 | Start the Travel API first (Terminal 1) |
-| `Could not connect to Bedrock` | Run `aws configure` and check region is `us-east-1` |
+| `Could not connect to Bedrock` | Check `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in `agent/.env` |
 | `ResourceNotFoundException` | Check `AWS_REGION=us-east-1` in `.env` — Nova models are only available in that region |
 | `UnicodeEncodeError` on Windows | Set terminal encoding: `chcp 65001` |
 | MCP server subprocess fails to start | Make sure `uv` is on your PATH; check `mcp-server/pyproject.toml` deps installed |
@@ -280,6 +278,6 @@ You: quit
 
 | File | Contents |
 |------|----------|
-| `resources/mcp-tools-reference.md` | All 4 MCP tools — params, examples, best practices |
+| `resources/mcp-tools-reference.md` | All 5 MCP tools — params, examples, best practices |
 | `resources/mcp-prompts-reference.md` | Both MCP prompts with rendered message examples |
 | `resources/agent-prompts-reference.md` | Agent system prompt guide + Bedrock message format rules |

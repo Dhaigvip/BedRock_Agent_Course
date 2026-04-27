@@ -243,8 +243,11 @@ if __name__ == "__main__":
         # The agent connects via sse_client("http://host:8200/sse").
         host = os.getenv("MCP_HOST", "0.0.0.0")
         port = int(os.getenv("MCP_PORT", "8200"))
-        print(f"[mcp-server] starting SSE transport on {host}:{port}", flush=True)
-        mcp.run(transport="sse", host=host, port=port)
+        print(f"[mcp-server] starting streamable-http transport on {host}:{port}", flush=True)
+        # FastMCP.run() does not accept host/port as arguments — configure via settings
+        mcp.settings.host = host
+        mcp.settings.port = port
+        mcp.run(transport="streamable-http")
     else:
         # stdio mode — default for local development.
         # The agent spawns this script as a subprocess.

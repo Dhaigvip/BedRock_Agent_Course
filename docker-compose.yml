@@ -11,16 +11,14 @@
 #
 # Service map:
 #   travel-api   :9000   FastAPI travel data service
-#   mcp-server   :8200   MCP server (HTTP/SSE transport)
-#   agent        :8100   Agent WebSocket API
-#   ui           :8080   React UI (nginx)
+#   agent        :8100   Agent WebSocket API (includes mcp-server via stdio)
+#   ui           :80     React UI (nginx) — proxies /ws/ to agent
 #
 # IMPORTANT — inter-service URLs:
 #   Inside Docker, services talk to each other by *service name*, not localhost.
 #   The overrides below wire these up automatically:
-#     agent → mcp-server   via MCP_SERVER_URL=http://mcp-server:8200/sse
 #     agent → travel-api   via TRAVEL_API_URL=http://travel-api:9000
-#     mcp-server → travel-api   via TRAVEL_API_URL=http://travel-api:9000
+#     mcp-server subprocess inherits the same env vars from the agent container
 #   Your agent/.env can still use localhost URLs for the non-Docker workflow.
 #
 # AWS credentials:
@@ -42,44 +40,24 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── MCP Server ───────────────────────────────────────────────────────────────
-  mcp-server:
-    build:
-      context: ./mcp-server
-    ports:
-      - "8200:8200"
-    env_file:
-      - ./agent/.env
-    environment:
-      # Force HTTP/SSE transport (also set in Dockerfile, explicit here for clarity)
-      MCP_TRANSPORT: http
-      # Inside Docker, reach travel-api by service name
-      TRAVEL_API_URL: http://travel-api:9000
-    depends_on:
-      travel-api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8200/sse')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Agent WebSocket API ──────────────────────────────────────────────────────
+  # The mcp-server is bundled inside this image and spawned as a subprocess
+  # (stdio transport). No separate mcp-server container needed.
   agent:
     build:
-      context: ./agent
+      context: .
+      dockerfile: agent/Dockerfile
     ports:
       - "8100:8100"
     env_file:
       - ./agent/.env
     environment:
-      # Inside Docker, reach other services by service name
-      MCP_TRANSPORT: http
-      MCP_SERVER_URL: http://mcp-server:8200/sse
+      # stdio: agent spawns mcp-server as a subprocess (bundled in this image)
+      MCP_TRANSPORT: stdio
+      # Inside Docker, reach travel-api by service name
       TRAVEL_API_URL: http://travel-api:9000
     depends_on:
-      mcp-server:
+      travel-api:
         condition: service_healthy
 
   # ── React UI (nginx) ─────────────────────────────────────────────────────────
@@ -87,10 +65,11 @@ services:
     build:
       context: ./ui
       args:
-        # Inside Docker the browser still runs on the host machine,
-        # so ws://localhost:8100 is correct (agent port is mapped to host).
-        VITE_WS_URL: ws://localhost:8100/ws/chat
+        # nginx proxies /ws/ → agent:8100, so the browser only needs port 80.
+        # For EC2: set VITE_WS_URL=ws://<EC2_PUBLIC_IP>/ws/chat before running.
+        # Default (localhost) works for local Docker development.
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost/ws/chat}
     ports:
-      - "8080:80"
+      - "80:80"
     depends_on:
       - agent

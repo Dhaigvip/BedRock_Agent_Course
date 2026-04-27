@@ -1,17 +1,13 @@
 # ── Agent WebSocket API — Docker image ───────────────────────────────────────
 #
-# Build context is the agent/ folder.
-# The MCP server is a separate container connected via HTTP/SSE — it does NOT
-# need to be bundled here.
+# Build context is the REPO ROOT (not agent/).
+# The mcp-server code is bundled inside this image so the agent can spawn it
+# as a subprocess (stdio transport) — no separate container needed.
 #
-# Build (from the agent/ folder):
-#   docker build -t agent-service .
+# Build (from repo root):
+#   docker build -f agent/Dockerfile -t agent-service .
 #
-# Run (local, pointing at a running mcp-server container):
-#   docker run -p 8100:8100 --env-file .env \
-#     -e MCP_TRANSPORT=http \
-#     -e MCP_SERVER_URL=http://host.docker.internal:8200/sse \
-#     agent-service
+# docker-compose handles this automatically via context: . + dockerfile: agent/Dockerfile
 
 FROM python:3.11-slim
 
@@ -21,11 +17,14 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Dependencies layer (cached unless pyproject.toml changes)
-COPY pyproject.toml .
+COPY agent/pyproject.toml .
 RUN uv sync --no-dev
 
-# Source layer
-COPY . .
+# Copy agent source
+COPY agent/ /app/
+
+# Copy mcp-server source — spawned as stdio subprocess by the agent
+COPY mcp-server/ /app/mcp-server/
 
 EXPOSE 8100
 

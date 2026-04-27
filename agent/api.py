@@ -53,6 +53,13 @@ app.add_middleware(
 GUARDRAIL_ID = os.getenv("BEDROCK_GUARDRAIL_ID") or None
 
 
+# ── Health check ──────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _classify(user_text: str) -> str:

@@ -455,7 +455,7 @@
 - Two roles: `ecsTaskExecutionRole` (pull images, write logs) and `agentTaskRole` (call Bedrock)
 - `ecsTaskExecutionRole`: attach managed policy `AmazonECSTaskExecutionRolePolicy`
 - `agentTaskRole`: create inline policy — `bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`,
-  `bedrock-agent-runtime:RetrieveAndGenerate`, `secretsmanager:GetSecretValue`
+  `bedrock:RetrieveAndGenerate`, `bedrock:Retrieve`, `secretsmanager:GetSecretValue`
 - Principle of least privilege: resource ARNs locked to specific Nova Micro + Nova Lite models
 
 **V10.5 — Secrets Manager — Store Credentials**
