@@ -1,46 +1,32 @@
 # ── Agent WebSocket API — Docker image ───────────────────────────────────────
 #
-# IMPORTANT: build context must be the repo root (not the agent/ folder),
-# because the agent spawns the MCP server as a subprocess and needs both
-# agent/ and mcp-server/ to be present in the image.
+# Build context is the agent/ folder.
+# The MCP server is a separate container connected via HTTP/SSE — it does NOT
+# need to be bundled here.
 #
-# Build (from repo root):
-#   docker build -f agent/Dockerfile -t agent-service .
+# Build (from the agent/ folder):
+#   docker build -t agent-service .
 #
-# Run (local):
-#   docker run -p 8100:8100 --env-file agent/.env agent-service
-#
-# In the container the layout mirrors the repo:
-#   /app/
-#   ├── agent/       <- agent code + venv
-#   └── mcp-server/  <- MCP server code + venv  (spawned as subprocess)
-#
-# MCPClient uses stdio transport:
-#   uv run python /app/mcp-server/server.py
-# This works because each directory has its own pyproject.toml + .venv.
+# Run (local, pointing at a running mcp-server container):
+#   docker run -p 8100:8100 --env-file .env \
+#     -e MCP_TRANSPORT=http \
+#     -e MCP_SERVER_URL=http://host.docker.internal:8200/sse \
+#     agent-service
 
 FROM python:3.11-slim
 
 # Install uv
 RUN pip install --no-cache-dir uv
 
-# ── Layer: MCP server dependencies ───────────────────────────────────────────
-WORKDIR /app/mcp-server
-COPY mcp-server/pyproject.toml .
+WORKDIR /app
+
+# Dependencies layer (cached unless pyproject.toml changes)
+COPY pyproject.toml .
 RUN uv sync --no-dev
 
-# Copy MCP server source (separate layer — code changes more often than deps)
-COPY mcp-server/ .
-
-# ── Layer: Agent dependencies ─────────────────────────────────────────────────
-WORKDIR /app/agent
-COPY agent/pyproject.toml .
-RUN uv sync --no-dev
-
-# Copy agent source
-COPY agent/ .
+# Source layer
+COPY . .
 
 EXPOSE 8100
 
-# uv run resolves the venv from the CWD's pyproject.toml (/app/agent)
-CMD ["uv", "run", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8100"]
+CMD ["uv", "run", "python", "api.py"]

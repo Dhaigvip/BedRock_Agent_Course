@@ -1,6 +1,6 @@
 # ── Local multi-container stack ───────────────────────────────────────────────
 #
-# Starts all three services in Docker so you can test the full stack locally
+# Starts all four services in Docker so you can test the full stack locally
 # before deploying to AWS.
 #
 # Usage:
@@ -9,15 +9,22 @@
 #   docker compose logs -f agent     # tail agent logs
 #   docker compose down              # stop and remove containers
 #
-# IMPORTANT — TRAVEL_API_URL:
+# Service map:
+#   travel-api   :9000   FastAPI travel data service
+#   mcp-server   :8200   MCP server (HTTP/SSE transport)
+#   agent        :8100   Agent WebSocket API
+#   ui           :8080   React UI (nginx)
+#
+# IMPORTANT — inter-service URLs:
 #   Inside Docker, services talk to each other by *service name*, not localhost.
-#   The agent must reach travel-api via http://travel-api:9000, not localhost:9000.
-#   This is set automatically below via the environment override.
-#   Your agent/.env can still have TRAVEL_API_URL=http://localhost:9000 for the
-#   non-Docker (uv run) workflow — docker-compose overrides it at runtime.
+#   The overrides below wire these up automatically:
+#     agent → mcp-server   via MCP_SERVER_URL=http://mcp-server:8200/sse
+#     agent → travel-api   via TRAVEL_API_URL=http://travel-api:9000
+#     mcp-server → travel-api   via TRAVEL_API_URL=http://travel-api:9000
+#   Your agent/.env can still use localhost URLs for the non-Docker workflow.
 #
 # AWS credentials:
-#   Copy agent/.env.example -> agent/.env and fill in your credentials.
+#   Copy agent/.env.example → agent/.env and fill in your credentials.
 #   docker-compose mounts it with env_file so secrets never go into the image.
 
 services:
@@ -35,21 +42,44 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── MCP Server ───────────────────────────────────────────────────────────────
+  mcp-server:
+    build:
+      context: ./mcp-server
+    ports:
+      - "8200:8200"
+    env_file:
+      - ./agent/.env
+    environment:
+      # Force HTTP/SSE transport (also set in Dockerfile, explicit here for clarity)
+      MCP_TRANSPORT: http
+      # Inside Docker, reach travel-api by service name
+      TRAVEL_API_URL: http://travel-api:9000
+    depends_on:
+      travel-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8200/sse')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Agent WebSocket API ──────────────────────────────────────────────────────
-  # Build context is the repo root so Dockerfile can copy both agent/ and mcp-server/
   agent:
     build:
-      context: .
-      dockerfile: agent/Dockerfile
+      context: ./agent
     ports:
       - "8100:8100"
     env_file:
       - ./agent/.env
     environment:
-      # Override localhost URL — inside Docker, use the service name
+      # Inside Docker, reach other services by service name
+      MCP_TRANSPORT: http
+      MCP_SERVER_URL: http://mcp-server:8200/sse
       TRAVEL_API_URL: http://travel-api:9000
     depends_on:
-      travel-api:
+      mcp-server:
         condition: service_healthy
 
   # ── React UI (nginx) ─────────────────────────────────────────────────────────

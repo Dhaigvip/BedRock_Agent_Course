@@ -1,11 +1,21 @@
 """
-MCP Client — connects to the MCP server via stdio transport.
+MCP Client — connects to the MCP server via stdio (local dev) or HTTP/SSE (Docker/ECS).
+
+Transport is selected by the MCP_TRANSPORT environment variable:
+
+  MCP_TRANSPORT=stdio  (default)
+      Spawns the MCP server as a local subprocess.
+      Used when running the agent directly with `uv run python main.py`.
+
+  MCP_TRANSPORT=http
+      Connects to a running MCP server over HTTP/SSE.
+      Used in Docker (docker-compose) and ECS deployment.
+      Requires MCP_SERVER_URL — e.g. http://mcp-server:8200/sse
 
 Responsibilities:
-  - Start the MCP server as a subprocess
   - list_tools()  → return tools in Bedrock toolSpec format
   - call_tool()   → forward a tool call, return plain-text result
-  - close()       → clean shutdown
+  - close()       → clean shutdown (handled by context manager)
 
 Usage:
     async with MCPClient.connect() as client:
@@ -18,20 +28,24 @@ from contextlib import asynccontextmanager
 
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.sse import sse_client
 
-# ── Server launch config ──────────────────────────────────────────────────────
-# We start the MCP server as a subprocess using the same uv venv.
-# The server script lives one level up from this file.
+# ── Transport config ──────────────────────────────────────────────────────────
 
+_TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio")
+
+# stdio — path to the server script (one level up from this file)
 _SERVER_SCRIPT = os.path.join(
     os.path.dirname(__file__), "..", "mcp-server", "server.py"
 )
-
 _SERVER_PARAMS = StdioServerParameters(
     command="uv",
     args=["run", "python", os.path.abspath(_SERVER_SCRIPT)],
     env=None,   # inherits current environment (.env already loaded by agent)
 )
+
+# http — URL of the running MCP server's SSE endpoint
+_MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8200/sse")
 
 
 # ── Format conversion ─────────────────────────────────────────────────────────
@@ -73,17 +87,29 @@ class MCPClient:
     @asynccontextmanager
     async def connect():
         """
-        Async context manager that starts the MCP server subprocess,
-        initialises the session, and yields a ready MCPClient.
+        Async context manager that connects to the MCP server and yields
+        a ready MCPClient.
+
+        Transport is chosen by MCP_TRANSPORT env var:
+          - "stdio" (default) — spawns the MCP server as a subprocess
+          - "http"            — connects to a running server via SSE
 
         Example:
             async with MCPClient.connect() as client:
                 tools = await client.list_tools()
         """
-        async with stdio_client(_SERVER_PARAMS) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield MCPClient(session)
+        if _TRANSPORT == "http":
+            print(f"[mcp] connecting via HTTP/SSE → {_MCP_SERVER_URL}")
+            async with sse_client(_MCP_SERVER_URL) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    yield MCPClient(session)
+        else:
+            print("[mcp] connecting via stdio (subprocess)")
+            async with stdio_client(_SERVER_PARAMS) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    yield MCPClient(session)
 
     # ── Public API ────────────────────────────────────────────────────────────
 

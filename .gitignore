@@ -5,7 +5,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# .env files — never commit credentials
 .env
+**/.env
 
 # uv
 uv.lock

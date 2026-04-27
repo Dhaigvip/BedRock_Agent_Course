@@ -237,4 +237,15 @@ def budget_breakdown_prompt(destination: str, total_budget_usd: int, duration_da
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    mcp.run()
+    transport = os.getenv("MCP_TRANSPORT", "stdio")
+    if transport == "http":
+        # HTTP/SSE mode — used in Docker and ECS deployment.
+        # The agent connects via sse_client("http://host:8200/sse").
+        host = os.getenv("MCP_HOST", "0.0.0.0")
+        port = int(os.getenv("MCP_PORT", "8200"))
+        print(f"[mcp-server] starting SSE transport on {host}:{port}", flush=True)
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        # stdio mode — default for local development.
+        # The agent spawns this script as a subprocess.
+        mcp.run()

@@ -1,41 +1,43 @@
 {
   "_comment": [
-    "ECS Fargate task definition for the Agent WebSocket API.",
+    "ECS Fargate task definition for the MCP Server.",
     "Replace all REPLACE_WITH_... placeholders before registering.",
     "",
     "Key points:",
-    "  - taskRoleArn must allow bedrock:InvokeModel + bedrock:InvokeModelWithResponseStream",
-    "  - Secrets are pulled from AWS Secrets Manager at container start",
-    "  - TRAVEL_API_URL and MCP_SERVER_URL use private IPs of those ECS tasks",
+    "  - taskRoleArn needs bedrock-agent-runtime:Retrieve for the search_travel_guides tool",
+    "  - TRAVEL_API_URL uses the private IP of the travel-api ECS task",
+    "  - MCP_TRANSPORT is set to 'http' so the server listens on port 8200 via SSE",
+    "  - No ALB needed — agent connects directly via private IP",
     "",
     "Register with:",
-    "  aws ecs register-task-definition --cli-input-json file://deploy/task-def-agent.json"
+    "  aws ecs register-task-definition --cli-input-json file://deploy/task-def-mcp-server.json"
   ],
 
-  "family": "agent-service",
+  "family": "mcp-server",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
 
-  "cpu":    "512",
-  "memory": "1024",
+  "cpu":    "256",
+  "memory": "512",
 
   "executionRoleArn": "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/ecsTaskExecutionRole",
   "taskRoleArn":      "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/agentTaskRole",
 
   "containerDefinitions": [
     {
-      "name":  "agent-service",
-      "image": "REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/agent-service:latest",
+      "name":  "mcp-server",
+      "image": "REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/mcp-server:latest",
 
       "portMappings": [
-        { "containerPort": 8100, "protocol": "tcp" }
+        { "containerPort": 8200, "protocol": "tcp" }
       ],
 
       "environment": [
-        { "name": "AWS_REGION",       "value": "us-east-1" },
-        { "name": "TRAVEL_API_URL",   "value": "http://REPLACE_WITH_TRAVEL_API_PRIVATE_IP:9000" },
-        { "name": "MCP_TRANSPORT",    "value": "http" },
-        { "name": "MCP_SERVER_URL",   "value": "http://REPLACE_WITH_MCP_SERVER_PRIVATE_IP:8200/sse" }
+        { "name": "AWS_REGION",     "value": "us-east-1" },
+        { "name": "MCP_TRANSPORT",  "value": "http" },
+        { "name": "MCP_HOST",       "value": "0.0.0.0" },
+        { "name": "MCP_PORT",       "value": "8200" },
+        { "name": "TRAVEL_API_URL", "value": "http://REPLACE_WITH_TRAVEL_API_PRIVATE_IP:9000" }
       ],
 
       "secrets": [
@@ -56,7 +58,7 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group":         "/ecs/agent-service",
+          "awslogs-group":         "/ecs/mcp-server",
           "awslogs-region":        "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }

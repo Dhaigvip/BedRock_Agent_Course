@@ -1,0 +1,26 @@
+# ── AWS credentials ────────────────────────────────────────────────────────────
+# Create an IAM user in Section 1 and paste your keys here.
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-access-key-id
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
+
+# ── Travel API ─────────────────────────────────────────────────────────────────
+TRAVEL_API_URL=http://localhost:9000
+
+# ── MCP Server transport ───────────────────────────────────────────────────────
+# stdio  — MCP server runs as a local subprocess (default for `uv run` dev)
+# http   — MCP server runs as a separate container/service (Docker / ECS)
+MCP_TRANSPORT=stdio
+
+# URL of the MCP server SSE endpoint — only used when MCP_TRANSPORT=http
+# docker-compose overrides this to http://mcp-server:8200/sse automatically
+MCP_SERVER_URL=http://localhost:8200/sse
+
+# ── Section 7 — RAG ───────────────────────────────────────────────────────────
+# Create these in the AWS console (Sections 7.3 and 7.4), then paste the IDs here
+BEDROCK_KB_ID=your-knowledge-base-id
+BEDROCK_DS_ID=your-data-source-id
+S3_BUCKET_NAME=your-s3-bucket-name
+
+# ── Section 8 — Guardrails (auto-created on first run if left blank) ───────────
+BEDROCK_GUARDRAIL_ID=

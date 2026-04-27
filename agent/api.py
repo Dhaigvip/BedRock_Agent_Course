@@ -2,7 +2,7 @@
 Travel Concierge — FastAPI WebSocket streaming server.
 
 Run:
-    uv run uvicorn api:app --host 0.0.0.0 --port 8100 --reload
+    uv run python api.py
 
 WebSocket endpoint:  ws://localhost:8100/ws/chat
 
@@ -27,6 +27,7 @@ independent agent turn sharing the same LangGraph thread (session memory).
 
 import os
 import json
+import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -260,3 +261,7 @@ async def chat_ws(websocket: WebSocket):
 
             except WebSocketDisconnect:
                 print("[api] client disconnected")
+
+
+if __name__ == "__main__":
+    uvicorn.run("api:app", host="0.0.0.0", port=8100, reload=True)
