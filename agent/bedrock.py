@@ -173,6 +173,87 @@ def get_or_create_guardrail(name: str = "travel-concierge-guardrail") -> str:
         raise RuntimeError(f"Could not create guardrail: {e.response['Error']['Message']}") from e
 
 
+# ── Converse Stream API ───────────────────────────────────────────────────────
+
+def call_bedrock_stream(
+    messages:     list[dict],
+    tools:        list[dict] = [],
+    model_id:     str        = MODELS["simple"],
+    guardrail_id: str | None = None,
+):
+    """
+    Call Bedrock via the Converse *Stream* API and yield events as they arrive.
+
+    This is a **synchronous generator** because boto3's converse_stream returns
+    a synchronous event iterator.  In an asyncio context you can call it with:
+        for event_type, data in call_bedrock_stream(...):
+            ...
+    For production workloads, wrap with asyncio.to_thread() to avoid briefly
+    blocking the event loop on each network read.
+
+    Yields tuples:
+        ("token",      str)          — text chunk (send straight to client)
+        ("tool_start", dict)         — {"toolUseId": str, "name": str}
+        ("tool_input", str)          — raw JSON fragment for current tool
+        ("tool_end",   None)         — tool input complete
+        ("stop",       str)          — stop reason ("end_turn" | "tool_use")
+
+    Tool input must be accumulated across ("tool_input", ...) events and
+    parsed as JSON once "tool_end" fires.
+    """
+    kwargs = {
+        "modelId":  model_id,
+        "messages": messages,
+    }
+
+    if tools:
+        kwargs["toolConfig"] = {"tools": tools}
+
+    if guardrail_id:
+        kwargs["guardrailConfig"] = {
+            "guardrailIdentifier": guardrail_id,
+            "guardrailVersion":    "DRAFT",
+        }
+
+    try:
+        response = _client.converse_stream(**kwargs)
+    except ClientError as e:
+        raise RuntimeError(f"Bedrock stream failed: {e.response['Error']['Message']}") from e
+
+    for event in response["stream"]:
+
+        # ── Text delta ──────────────────────────────────────────────────────
+        if "contentBlockDelta" in event:
+            delta = event["contentBlockDelta"]["delta"]
+            if "text" in delta:
+                yield ("token", delta["text"])
+            elif "toolUse" in delta:
+                # Partial tool input JSON fragment
+                yield ("tool_input", delta["toolUse"].get("input", ""))
+
+        # ── Block started (new text block or new tool call) ─────────────────
+        elif "contentBlockStart" in event:
+            start = event["contentBlockStart"].get("start", {})
+            if "toolUse" in start:
+                yield ("tool_start", {
+                    "toolUseId": start["toolUse"]["toolUseId"],
+                    "name":      start["toolUse"]["name"],
+                })
+
+        # ── Block finished ──────────────────────────────────────────────────
+        elif "contentBlockStop" in event:
+            yield ("tool_end", None)
+
+        # ── Message stop ────────────────────────────────────────────────────
+        elif "messageStop" in event:
+            yield ("stop", event["messageStop"]["stopReason"])
+
+        # ── Token usage (arrives in metadata event at the very end) ─────────
+        elif "metadata" in event:
+            if "usage" in event["metadata"]:
+                log_usage(model_id, event["metadata"]["usage"])
+
+
 # ── Knowledge Base — RetrieveAndGenerate API ──────────────────────────────────
 
 def retrieve_and_generate(

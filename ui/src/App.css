@@ -1,0 +1,339 @@
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:           #0f1117;
+  --surface:      #1a1d27;
+  --surface2:     #22263a;
+  --border:       #2e3147;
+  --accent:       #4f8ef7;
+  --accent-hover: #6aa3ff;
+  --user-bubble:  #1e3a5f;
+  --user-text:    #c8dfff;
+  --bot-bubble:   #1e2130;
+  --bot-text:     #e2e8f0;
+  --muted:        #8892a4;
+  --tool-bg:      #161a2b;
+  --tool-border:  #2a3050;
+  --green:        #34d399;
+  --red:          #f87171;
+  --radius:       12px;
+  --font:         "Inter", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--bot-text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Chat window ─────────────────────────────────────────────────────────── */
+
+.chat-window {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  height: min(860px, 100dvh);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.chat-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-icon {
+  font-size: 20px;
+}
+
+.connection-badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+}
+
+.connection-badge.connected {
+  color: var(--green);
+  border-color: var(--green);
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.connection-badge.disconnected {
+  color: var(--red);
+  border-color: var(--red);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+/* ── Message list ────────────────────────────────────────────────────────── */
+
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-behavior: smooth;
+}
+
+.message-list.empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+/* ── Bubbles ─────────────────────────────────────────────────────────────── */
+
+.message {
+  display: flex;
+}
+
+.message.user {
+  justify-content: flex-end;
+}
+
+.message.assistant {
+  justify-content: flex-start;
+}
+
+.bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  position: relative;
+}
+
+.message.user .bubble {
+  background: var(--user-bubble);
+  color: var(--user-text);
+  border-bottom-right-radius: 4px;
+}
+
+.message.assistant .bubble {
+  background: var(--bot-bubble);
+  color: var(--bot-text);
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+/* Blinking cursor while tokens are streaming */
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--accent);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: blink 0.9s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ── Tool panel ──────────────────────────────────────────────────────────── */
+
+.tool-panel {
+  background: var(--tool-bg);
+  border-top: 1px solid var(--tool-border);
+  border-bottom: 1px solid var(--tool-border);
+  padding: 10px 16px;
+  flex-shrink: 0;
+}
+
+.tool-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.tool-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.tool-name {
+  font-family: "SF Mono", "Fira Code", monospace;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.tool-input {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+}
+
+.tool-result {
+  color: #a0c4a0;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+/* Tiny spinning dot for pending tool */
+.tool-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Input bar ───────────────────────────────────────────────────────────── */
+
+.input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.input-textarea {
+  flex: 1;
+  resize: none;
+  background: var(--surface2);
+  color: var(--bot-text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.15s;
+  min-height: 42px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.input-textarea:focus {
+  border-color: var(--accent);
+}
+
+.input-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input-textarea::placeholder {
+  color: var(--muted);
+}
+
+.send-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Spinner inside send button while streaming */
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ── Scrollbar (WebKit) ──────────────────────────────────────────────────── */
+
+.message-list::-webkit-scrollbar {
+  width: 6px;
+}
+.message-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.message-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
