@@ -156,10 +156,16 @@
 - Model ID format: `amazon.nova-micro-v1:0` — how to reference in code
 
 **V4.3 — AWS Local Dev Setup**
-- IAM: create user, attach `AmazonBedrockFullAccess` policy
+- IAM → Users → Create user
+  - User name: `bedrock`
+  - Attach policies directly: `AmazonBedrockFullAccess`
+  - Create user → open user → Security credentials → Create access key
+  - Use case: CLI → create → download CSV (keep safe)
 - Enable model access in Bedrock console: Nova Micro + Nova Lite
-- `aws configure`: access key, secret, region `us-east-1`
+  - Bedrock → Model access → Modify model access → enable both → Save
+- `aws configure`: paste access key, secret key, region `us-east-1`, output `json`
 - Test: boto3 one-liner to Nova Micro, confirm response in terminal
+- Note: this user will need additional permissions in Section 10 (ECR + ECS + Secrets Manager)
 
 ---
 
