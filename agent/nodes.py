@@ -2,6 +2,7 @@ import os
 from langgraph.types import RunnableConfig
 from state import AgentState
 from bedrock import call_bedrock, MODELS
+from prompts import build_classifier_prompt
 
 GUARDRAIL_ID = os.getenv("BEDROCK_GUARDRAIL_ID") or None
 
@@ -18,16 +19,8 @@ def classify_node(state: AgentState) -> dict:
         if "text" in block
     )
 
-    prompt = (
-        "Classify this travel question as either 'simple' or 'complex'.\n"
-        "Simple: single fact lookup, one-step answer (e.g. weather, currency rate).\n"
-        "Complex: multi-step planning, comparisons, itinerary building.\n"
-        "Reply with ONE word only: simple or complex.\n\n"
-        f"Question: {user_text}"
-    )
-
     response = call_bedrock(
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        messages=[build_classifier_prompt(user_text)],
         model_id=MODELS["simple"],   # always use cheapest model for classification
     )
 

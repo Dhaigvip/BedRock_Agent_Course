@@ -17,6 +17,7 @@ Storage: a single SQLite table user_facts(user_id TEXT PRIMARY KEY, facts TEXT)
 import sqlite3
 from pathlib import Path
 from bedrock import call_bedrock, MODELS
+from prompts import build_memory_prompt
 
 DB_PATH = Path(__file__).parent / "memory.db"
 
@@ -73,23 +74,8 @@ def save_facts(user_id: str, messages: list[dict]) -> str:
 
     conversation_text = "\n".join(turns[-20:])  # last 20 turns is enough
 
-    prompt = (
-        "You are a memory extractor for a travel assistant.\n"
-        "Read the conversation below and extract any facts about the USER that "
-        "are worth remembering for future sessions.\n"
-        "Focus on: travel preferences, budget range, home city, favourite "
-        "destinations, dietary needs, travel style (budget/luxury/backpacker).\n"
-        "Ignore one-off questions. Only keep durable preferences.\n\n"
-        f"EXISTING FACTS:\n{existing or '(none yet)'}\n\n"
-        f"CONVERSATION:\n{conversation_text}\n\n"
-        "Output ONLY a short bullet-point list of facts to remember. "
-        "Merge with existing facts — do not duplicate. "
-        "If nothing new is worth remembering, return the existing facts unchanged. "
-        "Max 10 bullets."
-    )
-
     response = call_bedrock(
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        messages=[build_memory_prompt(existing, conversation_text)],
         model_id=MODELS["simple"],  # Nova Micro is fine for this extraction task
     )
     updated_facts = response["content"][0]["text"].strip()

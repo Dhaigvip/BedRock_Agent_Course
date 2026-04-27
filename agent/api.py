@@ -35,6 +35,7 @@ from graph import build_graph
 from mcp_client import MCPClient
 from memory import load_facts
 from bedrock import call_bedrock, call_bedrock_stream, MODELS
+from prompts import build_system_prompt, SYSTEM_ACK, build_classifier_prompt
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -53,42 +54,13 @@ GUARDRAIL_ID = os.getenv("BEDROCK_GUARDRAIL_ID") or None
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _build_system_prompt(user_facts: str) -> dict:
-    base = (
-        "You are a helpful AI Travel Concierge. "
-        "You help travellers plan trips, find hotels, check weather, "
-        "and understand currency exchange rates. "
-        "Always use the available tools to fetch real data before answering. "
-        "Be concise, friendly, and practical."
-    )
-    if user_facts:
-        base += (
-            f"\n\nWhat you already know about this user:\n{user_facts}\n"
-            "Use this to personalise your answers where relevant."
-        )
-    return {"role": "user", "content": [{"text": base}]}
-
-
-_SYSTEM_ACK = {
-    "role": "assistant",
-    "content": [{"text": "Understood! I'm your Travel Concierge. How can I help you today?"}],
-}
-
-
 def _classify(user_text: str) -> str:
     """
     Quick one-shot call to Nova Micro to classify the question complexity.
     Returns the Bedrock model ID to use for the main response.
     """
-    prompt = (
-        "Classify this travel question as either 'simple' or 'complex'.\n"
-        "Simple: single fact lookup (weather, currency rate).\n"
-        "Complex: multi-step planning, comparisons, itinerary building.\n"
-        "Reply with ONE word only: simple or complex.\n\n"
-        f"Question: {user_text}"
-    )
     response = call_bedrock(
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        messages=[build_classifier_prompt(user_text)],
         model_id=MODELS["simple"],
     )
     label = response["content"][0]["text"].strip().lower()
@@ -263,7 +235,7 @@ async def chat_ws(websocket: WebSocket):
                         if user_facts:
                             print(f"[memory] facts loaded for '{user_id}'")
                         await agent.aupdate_state(config, {
-                            "messages": [_build_system_prompt(user_facts), _SYSTEM_ACK],
+                            "messages": [build_system_prompt(user_facts), SYSTEM_ACK],
                             "model_id": "",
                             "tools":    tools,
                         }, as_node="__start__")

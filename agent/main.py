@@ -18,34 +18,7 @@ from graph import build_graph
 from state import AgentState
 from mcp_client import MCPClient
 from memory import load_facts, save_facts
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
-
-def build_system_prompt(user_facts: str) -> dict:
-    """
-    Build the opening user message that sets the agent's persona.
-    Long-term facts (if any) are appended so the agent knows the user's
-    preferences from previous sessions without being told again.
-    """
-    base = (
-        "You are a helpful AI Travel Concierge. "
-        "You help travellers plan trips, find hotels, check weather, "
-        "and understand currency exchange rates. "
-        "Always use the available tools to fetch real data before answering. "
-        "Be concise, friendly, and practical."
-    )
-    if user_facts:
-        base += (
-            f"\n\nWhat you already know about this user:\n{user_facts}\n"
-            "Use this to personalise your answers where relevant."
-        )
-    return {"role": "user", "content": [{"text": base}]}
-
-
-SYSTEM_ACK = {
-    "role": "assistant",
-    "content": [{"text": "Understood! I'm your Travel Concierge. How can I help you today?"}],
-}
+from prompts import build_system_prompt, SYSTEM_ACK
 
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
