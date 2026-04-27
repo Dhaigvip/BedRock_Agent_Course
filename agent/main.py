@@ -4,10 +4,10 @@ Travel Concierge Agent — entry point.
 Usage:
     uv run python main.py [--user USER_ID]
 
-Starts the MCP server once, fetches tools, then runs an interactive REPL.
-Short-term memory is stored in memory.db (SQLite) keyed by thread_id.
-The same user always resumes the same conversation thread.
-Type 'quit' or 'exit' to stop.
+Short-term memory:  SQLite checkpointer (memory.db) — full message history
+                    per thread_id, restored automatically on resume.
+Long-term memory:   user_facts table (memory.db) — distilled preferences
+                    injected into system prompt; updated at session end.
 """
 
 import asyncio
@@ -17,23 +17,30 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from graph import build_graph
 from state import AgentState
 from mcp_client import MCPClient
+from memory import load_facts, save_facts
 
-# ── System prompt ─────────────────────────────────────────────────────────────
+# ── Prompts ───────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = {
-    "role": "user",
-    "content": [
-        {
-            "text": (
-                "You are a helpful AI Travel Concierge. "
-                "You help travellers plan trips, find hotels, check weather, "
-                "and understand currency exchange rates. "
-                "Always use the available tools to fetch real data before answering. "
-                "Be concise, friendly, and practical."
-            )
-        }
-    ],
-}
+def build_system_prompt(user_facts: str) -> dict:
+    """
+    Build the opening user message that sets the agent's persona.
+    Long-term facts (if any) are appended so the agent knows the user's
+    preferences from previous sessions without being told again.
+    """
+    base = (
+        "You are a helpful AI Travel Concierge. "
+        "You help travellers plan trips, find hotels, check weather, "
+        "and understand currency exchange rates. "
+        "Always use the available tools to fetch real data before answering. "
+        "Be concise, friendly, and practical."
+    )
+    if user_facts:
+        base += (
+            f"\n\nWhat you already know about this user:\n{user_facts}\n"
+            "Use this to personalise your answers where relevant."
+        )
+    return {"role": "user", "content": [{"text": base}]}
+
 
 SYSTEM_ACK = {
     "role": "assistant",
@@ -48,19 +55,20 @@ async def run(thread_id: str):
     print(f"  Travel Concierge Agent  [session: {thread_id}]")
     print("  Connecting to MCP server...")
 
-    # AsyncSqliteSaver stores the full graph state after every node.
-    # Same thread_id = same conversation resumed automatically.
     async with AsyncSqliteSaver.from_conn_string("memory.db") as checkpointer:
         agent = build_graph(checkpointer=checkpointer)
 
         async with MCPClient.connect() as mcp:
             tools = await mcp.list_tools()
 
+            # Load long-term facts for this user (empty string on first visit)
+            user_facts = load_facts(thread_id)
+            if user_facts:
+                print(f"  Remembered facts loaded for '{thread_id}'")
+
             print("  Type 'quit' to exit")
             print("=" * 60)
 
-            # Config binds this session to a thread — LangGraph restores
-            # the full message history from SQLite automatically.
             config = {
                 "configurable": {
                     "thread_id":  thread_id,
@@ -68,20 +76,17 @@ async def run(thread_id: str):
                 }
             }
 
-            # Seed the conversation only on the very first turn of a new thread.
-            # If the thread already exists in SQLite, the history is restored
-            # and we skip the seed to avoid duplicate system messages.
+            # Seed system prompt only on brand-new threads.
+            # Returning threads are fully restored by the checkpointer.
             existing = await agent.aget_state(config)
-            is_new_thread = not existing.values
-
-            if is_new_thread:
-                seed_state: AgentState = {
-                    "messages": [SYSTEM_PROMPT, SYSTEM_ACK],
+            if not existing.values:
+                await agent.aupdate_state(config, {
+                    "messages": [build_system_prompt(user_facts), SYSTEM_ACK],
                     "model_id": "",
                     "tools":    tools,
-                }
-                await agent.aupdate_state(config, seed_state)
+                })
 
+            final_state = None
             while True:
                 try:
                     user_input = input("\nYou: ").strip()
@@ -95,8 +100,8 @@ async def run(thread_id: str):
                     print("Goodbye!")
                     break
 
-                # Pass only the new user message — the checkpointer automatically
-                # merges it with the full history stored in SQLite.
+                # Pass only the new user message — checkpointer merges it
+                # with the full stored history transparently.
                 turn_state: AgentState = {
                     "messages": [{"role": "user", "content": [{"text": user_input}]}],
                     "model_id": "",
@@ -114,6 +119,10 @@ async def run(thread_id: str):
                         if text:
                             print(f"\nAgent: {text}")
                             break
+
+            # At session end: extract useful facts and persist for next session
+            if final_state:
+                save_facts(thread_id, final_state["messages"])
 
 
 if __name__ == "__main__":
