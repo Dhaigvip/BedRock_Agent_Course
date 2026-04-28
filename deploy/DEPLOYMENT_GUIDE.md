@@ -13,15 +13,34 @@ EC2 (port 80)
                │ /ws/* proxy
                ▼
            agent  :8100
-           │  └─ mcp-server (subprocess, stdio)
-           │
-           │ http://
-           ▼
-        travel-api  :9000
+           │              │
+           │ http://mcp    │ http://
+           ▼              ▼
+       mcp-server    travel-api
+        :8200          :9000
 ```
 
-**One EC2 instance runs three containers. nginx handles everything on port 80.**
-**The mcp-server runs as a subprocess inside the agent container — no separate container needed.**
+**One EC2 instance runs four containers. nginx handles everything on port 80.**
+
+---
+
+> ### ⚠️ FastMCP HTTP Transport Fix
+>
+> By default, FastMCP creates its server with `host="127.0.0.1"` which automatically
+> enables **DNS rebinding protection** — a security middleware that validates the
+> incoming `Host` header against an allowed list (`localhost`, `127.0.0.1` only).
+>
+> When the agent container connects to `http://mcp-server:8200/mcp`, the HTTP
+> request carries `Host: mcp-server:8200`. FastMCP rejects this with **421 Misdirected
+> Request** because `mcp-server` is not in its allowed hosts list.
+>
+> **The fix:** pass `host="0.0.0.0"` to the `FastMCP()` constructor:
+> ```python
+> mcp = FastMCP("travel-mcp-server", host="0.0.0.0", port=8200)
+> ```
+> When `host="0.0.0.0"`, FastMCP skips DNS rebinding protection entirely —
+> allowing any `Host` header. This is safe because the container is already
+> protected by Docker networking and the EC2 security group.
 
 ---
 
@@ -236,6 +255,7 @@ VITE_WS_URL=ws://YOUR_EC2_PUBLIC_IP/ws/chat docker compose up --build -d
 | Page doesn't load | Check security group allows port 80; verify `docker compose ps` shows all containers Up |
 | WebSocket disconnects immediately | Check agent logs: `docker compose logs agent` |
 | MCP tools failing | Check mcp-server logs: `docker compose logs mcp-server` |
+| `421 Misdirected Request` from mcp-server | `FastMCP` was created with default `host="127.0.0.1"` which enables DNS rebinding protection — fix: pass `host="0.0.0.0"` to the `FastMCP()` constructor in `mcp-server/server.py` |
 | Bedrock `AccessDeniedException` | IAM user is missing `AmazonBedrockFullAccess` policy |
 | Container keeps restarting | Read logs: `docker compose logs <service-name>` |
 | Wrong EC2 IP in WebSocket URL | Rebuild: `VITE_WS_URL=ws://NEW_IP/ws/chat docker compose up --build ui -d` |
