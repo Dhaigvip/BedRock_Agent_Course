@@ -11,14 +11,15 @@
 #
 # Service map:
 #   travel-api   :9000   FastAPI travel data service
-#   agent        :8100   Agent WebSocket API (includes mcp-server via stdio)
+#   mcp-server   :8200   MCP server (streamable-http transport)
+#   agent        :8100   Agent WebSocket API
 #   ui           :80     React UI (nginx) — proxies /ws/ to agent
 #
 # IMPORTANT — inter-service URLs:
 #   Inside Docker, services talk to each other by *service name*, not localhost.
 #   The overrides below wire these up automatically:
+#     agent → mcp-server   via MCP_SERVER_URL=http://mcp-server:8200/mcp
 #     agent → travel-api   via TRAVEL_API_URL=http://travel-api:9000
-#     mcp-server subprocess inherits the same env vars from the agent container
 #   Your agent/.env can still use localhost URLs for the non-Docker workflow.
 #
 # AWS credentials:
@@ -40,25 +41,38 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── MCP Server ───────────────────────────────────────────────────────────────
+  mcp-server:
+    build:
+      context: ./mcp-server
+    ports:
+      - "8200:8200"
+    env_file:
+      - ./agent/.env
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8200"
+      TRAVEL_API_URL: http://travel-api:9000
+    depends_on:
+      travel-api:
+        condition: service_healthy
+
   # ── Agent WebSocket API ──────────────────────────────────────────────────────
-  # The mcp-server is bundled inside this image and spawned as a subprocess
-  # (stdio transport). No separate mcp-server container needed.
   agent:
     build:
-      context: .
-      dockerfile: agent/Dockerfile
+      context: ./agent
     ports:
       - "8100:8100"
     env_file:
       - ./agent/.env
     environment:
-      # stdio: agent spawns mcp-server as a subprocess (bundled in this image)
-      MCP_TRANSPORT: stdio
-      # Inside Docker, reach travel-api by service name
+      MCP_TRANSPORT: http
+      MCP_SERVER_URL: http://mcp-server:8200/mcp
       TRAVEL_API_URL: http://travel-api:9000
     depends_on:
-      travel-api:
-        condition: service_healthy
+      mcp-server:
+        condition: service_started
 
   # ── React UI (nginx) ─────────────────────────────────────────────────────────
   ui:

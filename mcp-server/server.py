@@ -10,7 +10,15 @@ load_dotenv()
 
 # ── Server ────────────────────────────────────────────────────────────────────
 
-mcp = FastMCP("travel-mcp-server")
+# host="0.0.0.0" is required for Docker/EC2 deployment.
+# FastMCP auto-enables DNS rebinding protection (host validation) when host is
+# "127.0.0.1" or "localhost" — this causes 421 errors when the agent connects
+# using the Docker service name (e.g. "mcp-server") as the Host header.
+# Setting host="0.0.0.0" disables that protection, allowing any Host header.
+_MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+_MCP_PORT = int(os.getenv("MCP_PORT", "8200"))
+
+mcp = FastMCP("travel-mcp-server", host=_MCP_HOST, port=_MCP_PORT)
 
 TRAVEL_API = os.getenv("TRAVEL_API_URL", "http://localhost:9000")
 KB_ID      = os.getenv("BEDROCK_KB_ID", "")
@@ -239,16 +247,11 @@ def budget_breakdown_prompt(destination: str, total_budget_usd: int, duration_da
 if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
     if transport == "http":
-        # HTTP/SSE mode — used in Docker and ECS deployment.
-        # The agent connects via sse_client("http://host:8200/sse").
-        host = os.getenv("MCP_HOST", "0.0.0.0")
-        port = int(os.getenv("MCP_PORT", "8200"))
-        print(f"[mcp-server] starting streamable-http transport on {host}:{port}", flush=True)
-        # FastMCP.run() does not accept host/port as arguments — configure via settings
-        mcp.settings.host = host
-        mcp.settings.port = port
+        # HTTP/streamable-http mode — used when mcp-server runs as a separate container.
+        # host/port are set on the FastMCP instance at construction time above.
+        print(f"[mcp-server] starting streamable-http on {_MCP_HOST}:{_MCP_PORT}", flush=True)
         mcp.run(transport="streamable-http")
     else:
-        # stdio mode — default for local development.
+        # stdio mode — default for local dev and bundled Docker deployment.
         # The agent spawns this script as a subprocess.
         mcp.run()
