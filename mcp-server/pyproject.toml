@@ -10,3 +10,21 @@ dependencies = [
     "mcp[cli]>=1.27.0",
     "python-dotenv>=1.2.2",
 ]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
