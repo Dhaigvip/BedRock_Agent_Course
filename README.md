@@ -185,9 +185,34 @@ Invoke-RestMethod http://localhost:9000/health
 
 ```powershell
 cd mcp-server
-uv run mcp dev server.py
-# Inspector at http://localhost:6274
+# Optional: clear stale Inspector processes if ports are already in use
+$ports = 6274,6277
+foreach ($port in $ports) {
+  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique |
+    ForEach-Object { try { Stop-Process -Id $_ -Force } catch {} }
+}
+
+# Start Inspector UI/proxy only (recommended on Windows)
+npx -y @modelcontextprotocol/inspector@latest
+# Open the tokenized URL printed in the terminal
 ```
+
+In the Inspector UI, create the connection manually:
+
+- Transport: `stdio`
+- Command: `uv`
+- Args: `run python server.py`
+- Working directory: `C:/src/Courses/BedRock_Agent_Course/mcp-server`
+
+> Do not use `http://localhost:3001/sse` for this project.
+> This course uses stdio for local Inspector sessions.
+> Use `http://localhost:8200/mcp` only when you intentionally run
+> the MCP server in HTTP mode (`MCP_TRANSPORT=http`).
+
+> If Inspector crashes with exit code `4294967295` on Windows, use this
+> manual-connect workflow (start Inspector first, then connect in UI).
+> In our testing, this avoids a launch-time Inspector transport race.
 
 #### Terminal 3 — Agent CLI (Sections 1–8) or WebSocket API (Section 9+)
 
